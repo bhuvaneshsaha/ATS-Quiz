@@ -26,6 +26,7 @@
   .btn[data-variant='primary'] {
     background: var(--color-accent);
     color: #fff;
+    font-weight: 600;
   }
 
   .btn[data-variant='primary']:hover {
@@ -36,6 +37,7 @@
   .btn[data-variant='dark'] {
     background: var(--color-ink);
     color: #fff;
+    font-weight: 600;
   }
 
   .btn[data-variant='dark']:hover {

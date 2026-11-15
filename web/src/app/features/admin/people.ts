@@ -4,6 +4,7 @@ import { Api, problemMessage } from '../../core/api';
 import { Button } from '../../shared/ui/button';
 import { FieldControl } from '../../shared/ui/field';
 import { Card } from '../../shared/components/card';
+import { DataColumn, DataTable } from '../../shared/components/data-table';
 import { FormField } from '../../shared/components/form-field';
 import { PageHeader } from '../../shared/components/page-header';
 
@@ -21,7 +22,7 @@ interface RoleRow {
 
 @Component({
   selector: 'app-people',
-  imports: [BoundField, Button, FieldControl, Card, FormField, PageHeader],
+  imports: [BoundField, Button, FieldControl, Card, DataTable, FormField, PageHeader],
   template: `
     <section class="page">
       <app-page-header>
@@ -30,44 +31,40 @@ interface RoleRow {
           >Staff accounts and the roles they can be given</ng-container
         >
       </app-page-header>
-      <div class="grid gap-5 md:grid-cols-2">
-        <app-card>
-          <h2 i18n>Staff</h2>
-          <ul class="flex flex-col gap-2">
-            @for (user of users(); track user.id) {
-              <li class="rounded-control border border-line-soft px-3 py-2">
-                {{ user.displayName }} · {{ user.email }}
-              </li>
+      <div class="flex flex-col gap-5 lg:flex-row lg:items-start">
+        <div class="flex min-w-0 flex-1 flex-col gap-5">
+          <app-data-table
+            [columns]="userColumns"
+            [rows]="users()"
+            [track]="trackUser"
+            empty="No staff yet."
+          />
+          <app-data-table
+            [columns]="roleColumns"
+            [rows]="roles()"
+            [track]="trackRole"
+            empty="No roles yet."
+          />
+        </div>
+        <app-card class="w-full lg:w-96">
+          <h2 i18n>Invite a colleague</h2>
+          <form class="flex flex-col gap-3" (submit)="create($event)">
+            <app-form-field label="Name" [required]="true">
+              <input appControl [formField]="draft.displayName" />
+            </app-form-field>
+            <app-form-field label="Email" [required]="true">
+              <input appControl type="email" [formField]="draft.email" />
+            </app-form-field>
+            <app-form-field label="Temporary password" [required]="true">
+              <input appControl type="password" [formField]="draft.password" />
+            </app-form-field>
+            <button appButton i18n>Create account</button>
+            @if (error()) {
+              <p class="text-sm text-danger" role="alert">{{ error() }}</p>
             }
-          </ul>
-        </app-card>
-        <app-card>
-          <h2 i18n>Roles</h2>
-          <ul class="flex flex-col gap-2">
-            @for (role of roles(); track role.id) {
-              <li class="rounded-control border border-line-soft px-3 py-2">{{ role.name }}</li>
-            }
-          </ul>
+          </form>
         </app-card>
       </div>
-      <app-card>
-        <h2 i18n>Invite a colleague</h2>
-        <form class="grid gap-3 md:grid-cols-2" (submit)="create($event)">
-          <app-form-field label="Name" [required]="true">
-            <input appControl [formField]="draft.displayName" />
-          </app-form-field>
-          <app-form-field label="Email" [required]="true">
-            <input appControl type="email" [formField]="draft.email" />
-          </app-form-field>
-          <app-form-field class="md:col-span-2" label="Temporary password" [required]="true">
-            <input appControl type="password" [formField]="draft.password" />
-          </app-form-field>
-          <button appButton class="md:col-span-2" i18n>Create account</button>
-          @if (error()) {
-            <p class="text-sm text-danger md:col-span-2" role="alert">{{ error() }}</p>
-          }
-        </form>
-      </app-card>
     </section>
   `,
 })
@@ -77,6 +74,16 @@ export class PeoplePage {
   protected readonly roles = signal<RoleRow[]>([]);
   protected readonly error = signal<string | null>(null);
   protected readonly model = signal({ displayName: '', email: '', password: '' });
+  protected readonly userColumns: DataColumn<UserRow>[] = [
+    { header: 'Name', value: (row) => row.displayName, detail: (row) => row.email },
+    { header: 'Status', value: (row) => row.status, status: true },
+  ];
+  protected readonly roleColumns: DataColumn<RoleRow>[] = [
+    { header: 'Role', value: (row) => row.name },
+    { header: 'Kind', value: (row) => (row.isTemplate ? 'Template' : 'Custom'), status: true },
+  ];
+  protected readonly trackUser = (row: UserRow) => row.id;
+  protected readonly trackRole = (row: RoleRow) => row.id;
   protected readonly draft = form(this.model, (path) => {
     required(path.displayName);
     required(path.email);

@@ -9,7 +9,7 @@ export const en = {
   signOut: 'Sign out',
   emptyOpenings: 'No openings match this filter.',
   emptyCandidates: 'No candidates yet.',
-  emptyQuestions: 'No questions in this function yet.',
+  emptyQuestions: 'No questions match this view.',
   emptyGrading: 'The grading queue is empty.',
   inviteQueued: 'The stage was updated. An invite is queued when the stage has a test.',
 };

@@ -48,8 +48,9 @@ interface NavGroup {
           }
         </div>
       }
-      <div class="mt-auto flex flex-col gap-2 border-t border-nav-active px-2.5 pt-3.5">
+      <div class="mt-auto flex flex-col gap-1 border-t border-nav-active px-2.5 pt-3.5">
         <p class="font-medium text-white">{{ session.session()?.displayName }}</p>
+        <p class="text-xs text-nav-muted">{{ session.session()?.email }}</p>
         <button
           class="flex min-h-11 items-center gap-2 rounded-control px-1 text-nav-ink"
           type="button"
