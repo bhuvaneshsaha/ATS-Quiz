@@ -1,12 +1,13 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { Api, problemMessage } from '../../core/api';
 import { en } from '../../../locale/en';
 import { Button } from '../../shared/ui/button';
 import { FieldControl } from '../../shared/ui/field';
 import { Card } from '../../shared/components/card';
+import { DataColumn, DataTable } from '../../shared/components/data-table';
+import { FilterChips } from '../../shared/components/filter-chips';
 import { FormField } from '../../shared/components/form-field';
 import { PageHeader } from '../../shared/components/page-header';
-import { StatusPill } from '../../shared/components/status-pill';
 
 interface Named {
   id: string;
@@ -14,6 +15,7 @@ interface Named {
 }
 interface QuestionRow {
   id: string;
+  functionId: string;
   status: string;
   type: string;
   content: { prompt?: string };
@@ -21,52 +23,60 @@ interface QuestionRow {
 
 @Component({
   selector: 'app-questions',
-  imports: [Button, FieldControl, Card, FormField, PageHeader, StatusPill],
+  imports: [Button, FieldControl, Card, DataTable, FilterChips, FormField, PageHeader],
   template: `
     <section class="page">
       <app-page-header>
         <ng-container pageTitle i18n>Question bank</ng-container>
-        <ng-container pageSubtitle i18n>Drafts stay editable until they are published</ng-container>
+        <ng-container pageSubtitle>{{ subtitle() }}</ng-container>
       </app-page-header>
-      <app-form-field label="Function" [required]="true">
-        <select appControl class="md:max-w-xs" (change)="load($any($event.target).value)">
-          <option value="">Select</option>
-          @for (item of functions(); track item.id) {
-            <option [value]="item.id">{{ item.name }}</option>
-          }
-        </select>
-      </app-form-field>
-      <ul class="flex flex-col gap-2">
-        @for (question of questions(); track question.id) {
-          <li
-            class="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line bg-surface px-4 py-3"
+
+      <app-filter-chips [chips]="chips()" [value]="status()" (valueChange)="status.set($event)" />
+
+      <div class="flex flex-wrap items-end gap-2.5">
+        <app-form-field class="min-w-60 flex-1" label="Search">
+          <input
+            appControl
+            type="search"
+            [value]="search()"
+            (input)="search.set($any($event.target).value)"
+            i18n-placeholder
+            placeholder="Search question text"
+          />
+        </app-form-field>
+        <app-form-field class="min-w-44 flex-1" label="Function">
+          <select
+            appControl
+            [value]="functionId()"
+            (change)="functionId.set($any($event.target).value)"
           >
-            <span>{{ question.content.prompt }}</span>
-            <span class="flex items-center gap-2">
-              <app-status-pill [status]="question.status" />
-              @if (question.status === 'Draft') {
-                <button
-                  appButton
-                  variant="secondary"
-                  type="button"
-                  (click)="submit(question.id)"
-                  i18n
-                >
-                  Submit
-                </button>
-              }
-              @if (question.status === 'InReview') {
-                <button appButton type="button" (click)="publish(question.id)" i18n>Publish</button>
-              }
-            </span>
-          </li>
-        } @empty {
-          <li class="text-muted">{{ copy.emptyQuestions }}</li>
-        }
-      </ul>
+            <option value="" i18n>All functions</option>
+            @for (item of functions(); track item.id) {
+              <option [value]="item.id">{{ item.name }}</option>
+            }
+          </select>
+        </app-form-field>
+      </div>
+
+      <app-data-table
+        [columns]="columns"
+        [rows]="visible()"
+        [track]="track"
+        [empty]="copy.emptyQuestions"
+        (activated)="advance($event)"
+      />
+
       <app-card>
-        <h2 i18n>Single choice</h2>
+        <h2 i18n>New question</h2>
         <form class="flex flex-col gap-3" (submit)="create($event)">
+          <app-form-field label="Function" [required]="true">
+            <select appControl name="functionId" required [value]="functionId()">
+              <option value="" i18n>Select</option>
+              @for (item of functions(); track item.id) {
+                <option [value]="item.id">{{ item.name }}</option>
+              }
+            </select>
+          </app-form-field>
           <app-form-field label="Prompt" [required]="true">
             <input appControl name="prompt" required />
           </app-form-field>
@@ -76,7 +86,7 @@ interface QuestionRow {
           <app-form-field label="Other option" [required]="true">
             <input appControl name="wrong" required />
           </app-form-field>
-          <button appButton i18n>Save draft</button>
+          <button appButton class="self-start" i18n>Save draft</button>
         </form>
       </app-card>
       @if (error()) {
@@ -91,21 +101,58 @@ export class QuestionsPage {
   protected readonly functions = signal<Named[]>([]);
   protected readonly questions = signal<QuestionRow[]>([]);
   protected readonly functionId = signal('');
+  protected readonly status = signal('');
+  protected readonly search = signal('');
   protected readonly error = signal<string | null>(null);
+  protected readonly columns: DataColumn<QuestionRow>[] = [
+    { header: 'Question', value: (row) => row.content.prompt ?? '' },
+    { header: 'Type', value: (row) => typeLabel(row.type) },
+    { header: 'Function', value: (row) => this.functionName(row.functionId) },
+    { header: 'Status', value: (row) => row.status, status: true },
+    {
+      header: '',
+      value: () => '',
+      action: (row) =>
+        row.status === 'Draft' ? 'Submit' : row.status === 'InReview' ? 'Publish' : null,
+    },
+  ];
+  protected readonly track = (row: QuestionRow) => row.id;
+  protected readonly visible = computed(() => {
+    const search = this.search().trim().toLowerCase();
+    return this.questions().filter((row) => {
+      if (this.status() && row.status !== this.status()) {
+        return false;
+      }
+      if (this.functionId() && row.functionId !== this.functionId()) {
+        return false;
+      }
+      if (!search) {
+        return true;
+      }
+      return (row.content.prompt ?? '').toLowerCase().includes(search);
+    });
+  });
+  protected readonly chips = computed(() => {
+    const rows = this.questions();
+    const count = (status: string) => rows.filter((row) => row.status === status).length;
+    return [
+      { value: '', label: 'All', count: rows.length },
+      { value: 'Draft', label: 'Draft', count: count('Draft') },
+      { value: 'InReview', label: 'In review', count: count('InReview') },
+      { value: 'Published', label: 'Published', count: count('Published') },
+    ];
+  });
+  protected readonly subtitle = computed(
+    () => `${this.questions().length} questions · drafts stay editable until they are published`,
+  );
 
   constructor() {
     void this.api.get<Named[]>('/api/core/v1/functions').then((rows) => this.functions.set(rows));
+    void this.reload();
   }
 
-  protected async load(functionId: string): Promise<void> {
-    this.functionId.set(functionId);
-    if (!functionId) {
-      this.questions.set([]);
-      return;
-    }
-    this.questions.set(
-      await this.api.get<QuestionRow[]>(`/api/assessments/v1/questions?functionId=${functionId}`),
-    );
+  protected functionName(id: string): string {
+    return this.functions().find((item) => item.id === id)?.name ?? '';
   }
 
   protected async create(event: Event): Promise<void> {
@@ -117,7 +164,7 @@ export class QuestionsPage {
         'POST',
         '/api/assessments/v1/questions',
         {
-          functionId: this.functionId(),
+          functionId: data.get('functionId'),
           points: 4,
           timeLimitSeconds: null,
           skillIds: [],
@@ -134,19 +181,37 @@ export class QuestionsPage {
         true,
       );
       (event.target as HTMLFormElement).reset();
-      await this.load(this.functionId());
+      await this.reload();
     } catch (error) {
       this.error.set(problemMessage(error));
     }
   }
 
+  protected async advance(question: QuestionRow): Promise<void> {
+    if (question.status === 'Draft') {
+      await this.submit(question.id);
+    }
+    if (question.status === 'InReview') {
+      await this.publish(question.id);
+    }
+  }
+
   protected async submit(id: string): Promise<void> {
     await this.api.send('POST', `/api/assessments/v1/questions/${id}/submit`, {});
-    await this.load(this.functionId());
+    await this.reload();
   }
 
   protected async publish(id: string): Promise<void> {
     await this.api.send('POST', `/api/assessments/v1/questions/${id}/publish`, {});
-    await this.load(this.functionId());
+    await this.reload();
   }
+
+  private async reload(): Promise<void> {
+    this.questions.set(await this.api.get<QuestionRow[]>('/api/assessments/v1/questions'));
+  }
+}
+
+function typeLabel(type: string): string {
+  const text = type.replaceAll('_', ' ');
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : type;
 }

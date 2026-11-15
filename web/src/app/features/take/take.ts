@@ -60,13 +60,7 @@ interface Brand {
       >
         <div>
           <p class="font-display text-lg font-semibold">Shortlist</p>
-          <p class="text-sm text-muted">
-            @if (step() === 'player') {
-              Question {{ cursor() + 1 }} of {{ flat().length }}
-            } @else {
-              Assessment
-            }
-          </p>
+          <p class="text-sm text-muted" i18n>for [COMPANY NAME]</p>
         </div>
         @if (step() === 'player') {
           <div class="flex flex-wrap items-center gap-4">
@@ -81,7 +75,7 @@ interface Brand {
         }
       </header>
       @if (step() === 'player') {
-        <app-progress-bar [value]="answeredCount()" [max]="flat().length || 1" />
+        <app-progress-bar size="line" [value]="answeredCount()" [max]="flat().length || 1" />
       }
 
       <div class="take-wrap flex flex-1 flex-col gap-5">
@@ -140,7 +134,7 @@ interface Brand {
             @if (current(); as question) {
               <div class="flex flex-col gap-5 lg:flex-row lg:items-start">
                 <main class="flex min-w-0 flex-1 flex-col gap-5">
-                  <app-card>
+                  <app-card tone="panel">
                     <div class="flex flex-wrap items-center justify-between gap-3">
                       <p class="font-semibold">
                         Question {{ cursor() + 1 }} of {{ flat().length }}
@@ -148,21 +142,27 @@ interface Brand {
                       <p class="text-sm text-muted">{{ question.type }}</p>
                     </div>
                     <h1 class="font-display text-xl font-medium">{{ question.prompt }}</h1>
-                    <div class="flex flex-col gap-2.5">
+                    <fieldset class="flex flex-col gap-2.5 border-0 p-0">
+                      <legend class="pb-2.5 text-sm text-muted" i18n>Choose one answer</legend>
                       @for (option of question.options; track option.id) {
-                        <button
-                          class="min-h-11 rounded-control border-2 px-4 py-3 text-left transition-colors duration-150"
+                        <label
+                          class="flex min-h-11 cursor-pointer items-start gap-3 rounded-control border-2 px-4 py-3.5 transition-colors duration-150"
                           [class.border-accent]="chosen(question.questionVersionId) === option.id"
                           [class.bg-accent-tint]="chosen(question.questionVersionId) === option.id"
                           [class.border-line]="chosen(question.questionVersionId) !== option.id"
                           [class.bg-surface]="chosen(question.questionVersionId) !== option.id"
-                          type="button"
-                          (click)="choose(question, option.id)"
                         >
-                          {{ option.text }}
-                        </button>
+                          <input
+                            class="mt-0.5 size-5 accent-accent"
+                            type="radio"
+                            name="answer"
+                            [checked]="chosen(question.questionVersionId) === option.id"
+                            (change)="choose(question, option.id)"
+                          />
+                          <span>{{ option.text }}</span>
+                        </label>
                       }
-                    </div>
+                    </fieldset>
                     <button
                       appButton
                       variant="secondary"
@@ -229,10 +229,20 @@ interface Brand {
             }
           }
           @case ('done') {
-            <h1 class="text-3xl" i18n>Submitted</h1>
+            <h1 class="text-3xl" i18n>Your assessment is in</h1>
             <p class="max-w-xl text-ink-soft" i18n>
-              Your answers are with the hiring team. You can close this page.
+              Your answers were submitted and a confirmation is on its way. You can close this page.
             </p>
+            <app-card>
+              <h2 class="font-display text-xl" i18n>What happens next</h2>
+              <ol class="flex list-decimal flex-col gap-2.5 pl-5 text-ink-soft">
+                <li i18n>
+                  Choice questions are scored automatically. Written answers wait for a reviewer.
+                </li>
+                <li i18n>The hiring team shares the outcome by email.</li>
+                <li i18n>Scores stay with the team. They are not shown on this page.</li>
+              </ol>
+            </app-card>
           }
         }
         @if (error()) {
@@ -283,6 +293,22 @@ interface Brand {
             {{ position + 1 }}
           </button>
         }
+      </div>
+      <div class="grid grid-cols-2 gap-2 text-sm text-ink-soft">
+        <p class="flex items-center gap-2">
+          <span class="size-3.5 rounded-control bg-accent"></span><span i18n>Answered</span>
+        </p>
+        <p class="flex items-center gap-2">
+          <span class="size-3.5 rounded-control border-2 border-warn-line bg-warn-tint"></span
+          ><span i18n>Flagged</span>
+        </p>
+        <p class="flex items-center gap-2">
+          <span class="size-3.5 rounded-control border-2 border-ink bg-surface"></span
+          ><span i18n>Current</span>
+        </p>
+        <p class="flex items-center gap-2">
+          <span class="size-3.5 rounded-control bg-line-soft"></span><span i18n>Not seen</span>
+        </p>
       </div>
     </ng-template>
   `,

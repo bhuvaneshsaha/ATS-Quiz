@@ -1,6 +1,7 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, input } from '@angular/core';
+import { Component, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { Button } from '../ui/button';
 import { StatusPill } from './status-pill';
 
 export interface DataColumn<T> {
@@ -8,12 +9,14 @@ export interface DataColumn<T> {
   value: (row: T) => string;
   detail?: (row: T) => string | null;
   href?: (row: T) => string | null;
+  badge?: (row: T) => string | null;
   status?: boolean;
+  action?: (row: T) => string | null;
 }
 
 @Component({
   selector: 'app-data-table',
-  imports: [NgTemplateOutlet, RouterLink, StatusPill],
+  imports: [NgTemplateOutlet, RouterLink, StatusPill, Button],
   template: `
     <section class="overflow-hidden rounded-card border border-line bg-surface">
       @if (rows().length > 0) {
@@ -57,13 +60,24 @@ export interface DataColumn<T> {
       @if (rows().length === 0) {
         <p class="px-5 py-6 text-muted">{{ empty() }}</p>
       }
+      @if (note()) {
+        <p class="border-t border-line px-5 py-3 text-sm text-muted">{{ note() }}</p>
+      }
     </section>
 
     <ng-template #cell let-row let-column="column">
-      @if (column.status) {
+      @if (column.action) {
+        @if (column.action(row); as label) {
+          <button appButton variant="secondary" type="button" (click)="activated.emit(row)">
+            {{ label }}
+          </button>
+        }
+      } @else if (column.status) {
         <app-status-pill [status]="column.value(row)" />
       } @else if (column.href?.(row); as href) {
-        <a class="font-semibold text-ink" [routerLink]="href">{{ column.value(row) }}</a>
+        <a class="font-semibold text-ink no-underline" [routerLink]="href">{{
+          column.value(row)
+        }}</a>
         @if (column.detail?.(row); as detail) {
           <span class="block text-sm text-muted">{{ detail }}</span>
         }
@@ -71,6 +85,9 @@ export interface DataColumn<T> {
         <span>{{ column.value(row) }}</span>
         @if (column.detail?.(row); as detail) {
           <span class="block text-sm text-muted">{{ detail }}</span>
+        }
+        @if (column.badge?.(row); as badge) {
+          <app-status-pill class="mt-1" [status]="badge" />
         }
       }
     </ng-template>
@@ -81,4 +98,6 @@ export class DataTable<T> {
   readonly rows = input.required<readonly T[]>();
   readonly track = input.required<(row: T) => string>();
   readonly empty = input('Nothing to show.');
+  readonly note = input<string | null>(null);
+  readonly activated = output<T>();
 }

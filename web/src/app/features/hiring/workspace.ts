@@ -3,9 +3,9 @@ import { Api, problemMessage } from '../../core/api';
 import { Button } from '../../shared/ui/button';
 import { FieldControl } from '../../shared/ui/field';
 import { Card } from '../../shared/components/card';
+import { DataColumn, DataTable } from '../../shared/components/data-table';
 import { FormField } from '../../shared/components/form-field';
 import { PageHeader } from '../../shared/components/page-header';
-import { StatusPill } from '../../shared/components/status-pill';
 
 interface Named {
   id: string;
@@ -15,53 +15,57 @@ interface Named {
 
 @Component({
   selector: 'app-workspace',
-  imports: [Button, FieldControl, Card, FormField, PageHeader, StatusPill],
+  imports: [Button, FieldControl, Card, DataTable, FormField, PageHeader],
   template: `
     <section class="page">
       <app-page-header>
-        <ng-container pageTitle i18n>Workspace</ng-container>
-        <ng-container pageSubtitle i18n>Hiring units and functions for this company</ng-container>
+        <ng-container pageTitle i18n>Departments and clients</ng-container>
+        <ng-container pageSubtitle i18n
+          >Who you hire for. A function owns its questions, whoever the opening is
+          for.</ng-container
+        >
       </app-page-header>
-      <div class="grid gap-5 md:grid-cols-2">
-        <app-card>
-          <h2 i18n>Hiring units</h2>
-          <ul class="flex flex-col gap-2">
-            @for (unit of units(); track unit.id) {
-              <li
-                class="flex items-center justify-between gap-3 rounded-control border border-line-soft px-3 py-2"
-              >
-                <span>{{ unit.name }}</span>
-                <app-status-pill [status]="unit.type ?? 'Internal'" />
-              </li>
-            }
-          </ul>
-          <form class="flex flex-col gap-3" (submit)="addUnit($event)">
-            <app-form-field label="Unit name" [required]="true">
-              <input appControl name="name" required />
-            </app-form-field>
-            <app-form-field label="Type" [required]="true">
-              <select appControl name="type">
-                <option>Department</option>
-                <option>Client</option>
-              </select>
-            </app-form-field>
-            <button appButton i18n>Add hiring unit</button>
-          </form>
-        </app-card>
-        <app-card>
-          <h2 i18n>Functions</h2>
-          <ul class="flex flex-col gap-2">
-            @for (item of functions(); track item.id) {
-              <li class="rounded-control border border-line-soft px-3 py-2">{{ item.name }}</li>
-            }
-          </ul>
-          <form class="flex flex-col gap-3" (submit)="addFunction($event)">
-            <app-form-field label="Function name" [required]="true">
-              <input appControl name="name" required />
-            </app-form-field>
-            <button appButton i18n>Add function</button>
-          </form>
-        </app-card>
+      <div class="flex flex-col gap-5 lg:flex-row lg:items-start">
+        <div class="flex min-w-0 flex-1 flex-col gap-5">
+          <app-data-table
+            [columns]="unitColumns"
+            [rows]="units()"
+            [track]="track"
+            empty="No hiring units yet."
+          />
+          <app-data-table
+            [columns]="functionColumns"
+            [rows]="functions()"
+            [track]="track"
+            empty="No functions yet."
+          />
+        </div>
+        <div class="flex w-full flex-col gap-5 lg:w-80">
+          <app-card>
+            <h2 i18n>Add a hiring unit</h2>
+            <form class="flex flex-col gap-3" (submit)="addUnit($event)">
+              <app-form-field label="Unit name" [required]="true">
+                <input appControl name="name" required />
+              </app-form-field>
+              <app-form-field label="Type" [required]="true">
+                <select appControl name="type">
+                  <option>Department</option>
+                  <option>Client</option>
+                </select>
+              </app-form-field>
+              <button appButton i18n>Add department or client</button>
+            </form>
+          </app-card>
+          <app-card>
+            <h2 i18n>Add a function</h2>
+            <form class="flex flex-col gap-3" (submit)="addFunction($event)">
+              <app-form-field label="Function name" [required]="true">
+                <input appControl name="name" required />
+              </app-form-field>
+              <button appButton i18n>Add function</button>
+            </form>
+          </app-card>
+        </div>
       </div>
       @if (error()) {
         <p class="text-sm text-danger" role="alert">{{ error() }}</p>
@@ -74,6 +78,14 @@ export class WorkspacePage {
   protected readonly units = signal<Named[]>([]);
   protected readonly functions = signal<Named[]>([]);
   protected readonly error = signal<string | null>(null);
+  protected readonly unitColumns: DataColumn<Named>[] = [
+    { header: 'Name', value: (row) => row.name },
+    { header: 'Type', value: (row) => row.type ?? 'Internal', status: true },
+  ];
+  protected readonly functionColumns: DataColumn<Named>[] = [
+    { header: 'Function', value: (row) => row.name },
+  ];
+  protected readonly track = (row: Named) => row.id;
 
   constructor() {
     void this.reload();

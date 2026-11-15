@@ -3,9 +3,9 @@ import { Api, problemMessage } from '../../core/api';
 import { Button } from '../../shared/ui/button';
 import { FieldControl } from '../../shared/ui/field';
 import { Card } from '../../shared/components/card';
+import { DataColumn, DataTable } from '../../shared/components/data-table';
 import { FormField } from '../../shared/components/form-field';
 import { PageHeader } from '../../shared/components/page-header';
-import { StatusPill } from '../../shared/components/status-pill';
 
 interface Named {
   id: string;
@@ -26,7 +26,7 @@ interface AssessmentRow {
 
 @Component({
   selector: 'app-assessments',
-  imports: [Button, FieldControl, Card, FormField, PageHeader, StatusPill],
+  imports: [Button, FieldControl, Card, DataTable, FormField, PageHeader],
   template: `
     <section class="page">
       <app-page-header>
@@ -35,53 +35,50 @@ interface AssessmentRow {
           >A published version stays pinned to the openings that use it</ng-container
         >
       </app-page-header>
-      <ul class="flex flex-col gap-2">
-        @for (item of rows(); track item.id) {
-          <li
-            class="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line bg-surface px-4 py-3"
-          >
-            <span class="font-medium">{{ item.name }}</span>
-            <span class="flex items-center gap-2">
-              <app-status-pill [status]="item.status" />
-              @if (item.status !== 'Published') {
-                <button appButton type="button" (click)="publish(item.id)" i18n>Publish</button>
-              }
-            </span>
-          </li>
-        }
-      </ul>
-      <app-card>
-        <h2 i18n>New test</h2>
-        <form class="flex flex-col gap-3" (submit)="create($event)">
-          <app-form-field label="Function" [required]="true">
-            <select
-              appControl
-              name="function"
-              required
-              (change)="loadQuestions($any($event.target).value)"
-            >
-              <option value="" i18n>Function</option>
-              @for (item of functions(); track item.id) {
-                <option [value]="item.id">{{ item.name }}</option>
-              }
-            </select>
-          </app-form-field>
-          <app-form-field label="Assessment name" [required]="true">
-            <input appControl name="name" required />
-          </app-form-field>
-          <app-form-field label="Published question" [required]="true">
-            <select appControl name="question" required>
-              <option value="" i18n>Published question</option>
-              @for (question of questions(); track question.id) {
-                @if (question.status === 'Published') {
-                  <option [value]="question.currentVersionId">{{ question.content.prompt }}</option>
+      <div class="flex flex-col gap-5 lg:flex-row lg:items-start">
+        <app-data-table
+          class="min-w-0 flex-1"
+          [columns]="columns"
+          [rows]="rows()"
+          [track]="track"
+          empty="No assessments yet."
+          (activated)="publish($event.id)"
+        />
+        <app-card class="w-full lg:w-96">
+          <h2 i18n>New assessment</h2>
+          <form class="flex flex-col gap-3" (submit)="create($event)">
+            <app-form-field label="Function" [required]="true">
+              <select
+                appControl
+                name="function"
+                required
+                (change)="loadQuestions($any($event.target).value)"
+              >
+                <option value="" i18n>Function</option>
+                @for (item of functions(); track item.id) {
+                  <option [value]="item.id">{{ item.name }}</option>
                 }
-              }
-            </select>
-          </app-form-field>
-          <button appButton i18n>Create draft</button>
-        </form>
-      </app-card>
+              </select>
+            </app-form-field>
+            <app-form-field label="Assessment name" [required]="true">
+              <input appControl name="name" required />
+            </app-form-field>
+            <app-form-field label="Published question" [required]="true">
+              <select appControl name="question" required>
+                <option value="" i18n>Published question</option>
+                @for (question of questions(); track question.id) {
+                  @if (question.status === 'Published') {
+                    <option [value]="question.currentVersionId">
+                      {{ question.content.prompt }}
+                    </option>
+                  }
+                }
+              </select>
+            </app-form-field>
+            <button appButton i18n>Create draft</button>
+          </form>
+        </app-card>
+      </div>
       @if (error()) {
         <p class="text-sm text-danger" role="alert">{{ error() }}</p>
       }
@@ -94,6 +91,16 @@ export class AssessmentsPage {
   protected readonly questions = signal<QuestionRow[]>([]);
   protected readonly rows = signal<AssessmentRow[]>([]);
   protected readonly error = signal<string | null>(null);
+  protected readonly columns: DataColumn<AssessmentRow>[] = [
+    { header: 'Assessment', value: (row) => row.name },
+    { header: 'Status', value: (row) => row.status, status: true },
+    {
+      header: '',
+      value: () => '',
+      action: (row) => (row.status === 'Published' ? null : 'Publish'),
+    },
+  ];
+  protected readonly track = (row: AssessmentRow) => row.id;
 
   constructor() {
     void this.api.get<Named[]>('/api/core/v1/functions').then((rows) => this.functions.set(rows));

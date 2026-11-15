@@ -12,11 +12,21 @@ const tones: Record<StatusTone, string> = {
 };
 
 const groups: Record<StatusTone, string[]> = {
-  success: ['open', 'live', 'published', 'graded', 'passed', 'advanced', 'correct'],
+  success: ['open', 'live', 'published', 'graded', 'passed', 'advanced', 'correct', 'active'],
   warning: ['needs grading', 'in review', 'inreview', 'on hold', 'onhold', 'at risk', 'to grade'],
-  info: ['in progress', 'inprogress', 'client', 'partial', 'saved section'],
-  danger: ['rejected', 'expired', 'archived', 'incorrect', 'closed', 'closedunfilled'],
-  neutral: ['draft', 'invited', 'internal', 'manual', 'department'],
+  info: [
+    'in progress',
+    'inprogress',
+    'client',
+    'partial',
+    'saved section',
+    'assessment',
+    'interview',
+    'offer',
+    'senttoclient',
+  ],
+  danger: ['rejected', 'expired', 'archived', 'incorrect', 'closed', 'closedunfilled', 'withdrawn'],
+  neutral: ['draft', 'invited', 'internal', 'manual', 'department', 'applied'],
   strong: ['hired', 'always on', 'filled'],
 };
 
@@ -25,6 +35,7 @@ const labels: Record<string, string> = {
   inreview: 'In review',
   inprogress: 'In progress',
   closedunfilled: 'Closed',
+  senttoclient: 'Sent to client',
 };
 
 export function toneFor(status: string): StatusTone {
