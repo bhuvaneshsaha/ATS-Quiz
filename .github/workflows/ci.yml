@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: shortlist
+          POSTGRES_PASSWORD: shortlist
+          POSTGRES_DB: shortlist
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U shortlist"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      ConnectionStrings__Database: Host=127.0.0.1;Port=5432;Database=shortlist_test;Username=shortlist;Password=shortlist
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Create the test database
+        run: PGPASSWORD=shortlist psql -h 127.0.0.1 -U shortlist -d shortlist -c "CREATE DATABASE shortlist_test OWNER shortlist;"
+      - name: Restore .NET tools
+        run: dotnet tool restore
+      - name: Test the backend
+        run: dotnet test Shortlist.slnx --nologo
+      - name: Install the frontend
+        working-directory: web
+        run: npm ci
+      - name: Test and build the frontend
+        working-directory: web
+        run: npm test -- --watch=false && npx ng build --configuration production
+      - name: Check licences
+        run: bash build/check-licenses.sh

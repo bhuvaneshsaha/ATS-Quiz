@@ -1,0 +1,51 @@
+services:
+  database:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: shortlist
+      POSTGRES_PASSWORD: shortlist
+      POSTGRES_DB: shortlist
+    ports:
+      - "5432:5432"
+    volumes:
+      - shortlist-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shortlist"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  migrator:
+    build: .
+    working_dir: /app/migrator
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Database: Host=database;Port=5432;Database=shortlist;Username=shortlist;Password=shortlist
+      Workspace__Id: 019a0000-0000-7000-8000-000000000001
+    entrypoint: ["dotnet", "Shortlist.Migrator.dll"]
+    restart: "no"
+
+  app:
+    build: .
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+    ports:
+      - "5080:5080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Database: Host=database;Port=5432;Database=shortlist;Username=shortlist;Password=shortlist
+      Workspace__Id: 019a0000-0000-7000-8000-000000000001
+      Seed__AdminEmail: admin@shortlist.local
+      Seed__AdminPassword: Change-Me-Admin-1
+      Seed__AdminDisplayName: Avery Quinn
+      Storage__Provider: FileSystem
+      Cache__Provider: Memory
+      Email__Provider: Log
+      Pdf__Provider: Html
+      App__PublicBaseUrl: http://localhost:5080
+
+volumes:
+  shortlist-db:
