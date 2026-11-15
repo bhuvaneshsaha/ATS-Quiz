@@ -1,0 +1,35 @@
+@import 'tailwindcss';
+@source './app';
+
+@theme {
+  --color-paper: #f4f1ea;
+  --color-ink: #1c1915;
+  --color-teal: #0f6e6b;
+  --color-clay: #c4552a;
+  --color-card: #fffdf8;
+  --color-line: #e4ddd0;
+  --font-sans: "Segoe UI", "Helvetica Neue", sans-serif;
+  --font-serif: "Iowan Old Style", Palatino, "Palatino Linotype", serif;
+}
+
+html,
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+[brnSheetContent] {
+  background: var(--color-card);
+  color: var(--color-ink);
+  min-height: 100%;
+  padding: 1.25rem;
+  box-shadow: 0 20px 50px rgb(28 25 21 / 0.18);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}

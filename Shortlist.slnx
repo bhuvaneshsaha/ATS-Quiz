@@ -1,0 +1,49 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Shortlist.Host/Shortlist.Host.csproj" />
+    <Project Path="src/Shortlist.Migrator/Shortlist.Migrator.csproj" />
+  </Folder>
+  <Folder Name="/src/Adapters/">
+    <Project Path="src/Adapters/Adapters.Cache.Memory/Adapters.Cache.Memory.csproj" />
+    <Project Path="src/Adapters/Adapters.Cache.Valkey/Adapters.Cache.Valkey.csproj" />
+    <Project Path="src/Adapters/Adapters.Email.Smtp/Adapters.Email.Smtp.csproj" />
+    <Project Path="src/Adapters/Adapters.Jobs.Quartz/Adapters.Jobs.Quartz.csproj" />
+    <Project Path="src/Adapters/Adapters.Pdf.Playwright/Adapters.Pdf.Playwright.csproj" />
+    <Project Path="src/Adapters/Adapters.Storage.AzureBlob/Adapters.Storage.AzureBlob.csproj" />
+    <Project Path="src/Adapters/Adapters.Storage.FileSystem/Adapters.Storage.FileSystem.csproj" />
+    <Project Path="src/Adapters/Adapters.Storage.S3/Adapters.Storage.S3.csproj" />
+  </Folder>
+  <Folder Name="/src/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/BuildingBlocks.Abstractions/BuildingBlocks.Abstractions.csproj" />
+    <Project Path="src/BuildingBlocks/BuildingBlocks.Application/BuildingBlocks.Application.csproj" />
+    <Project Path="src/BuildingBlocks/BuildingBlocks.Infrastructure/BuildingBlocks.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/Assessments/">
+    <Project Path="src/Modules/Assessments/Assessments.Api/Assessments.Api.csproj" />
+    <Project Path="src/Modules/Assessments/Assessments.Application/Assessments.Application.csproj" />
+    <Project Path="src/Modules/Assessments/Assessments.Contracts/Assessments.Contracts.csproj" />
+    <Project Path="src/Modules/Assessments/Assessments.Domain/Assessments.Domain.csproj" />
+    <Project Path="src/Modules/Assessments/Assessments.Infrastructure/Assessments.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Core/">
+    <Project Path="src/Modules/Core/Core.Api/Core.Api.csproj" />
+    <Project Path="src/Modules/Core/Core.Application/Core.Application.csproj" />
+    <Project Path="src/Modules/Core/Core.Contracts/Core.Contracts.csproj" />
+    <Project Path="src/Modules/Core/Core.Domain/Core.Domain.csproj" />
+    <Project Path="src/Modules/Core/Core.Infrastructure/Core.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Identity/">
+    <Project Path="src/Modules/Identity/Identity.Api/Identity.Api.csproj" />
+    <Project Path="src/Modules/Identity/Identity.Application/Identity.Application.csproj" />
+    <Project Path="src/Modules/Identity/Identity.Contracts/Identity.Contracts.csproj" />
+    <Project Path="src/Modules/Identity/Identity.Domain/Identity.Domain.csproj" />
+    <Project Path="src/Modules/Identity/Identity.Infrastructure/Identity.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
+    <Project Path="tests/Assessments.UnitTests/Assessments.UnitTests.csproj" />
+    <Project Path="tests/Core.UnitTests/Core.UnitTests.csproj" />
+    <Project Path="tests/Shortlist.IntegrationTests/Shortlist.IntegrationTests.csproj" />
+  </Folder>
+</Solution>

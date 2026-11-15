@@ -1,0 +1,35 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="TngTech.ArchUnitNET" />
+    <PackageReference Include="TngTech.ArchUnitNET.xUnit" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BuildingBlocks\BuildingBlocks.Abstractions\BuildingBlocks.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\BuildingBlocks\BuildingBlocks.Application\BuildingBlocks.Application.csproj" />
+    <ProjectReference Include="..\..\src\BuildingBlocks\BuildingBlocks.Infrastructure\BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Core\Core.Domain\Core.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Core\Core.Application\Core.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Core\Core.Infrastructure\Core.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Core\Core.Contracts\Core.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Assessments\Assessments.Domain\Assessments.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Assessments\Assessments.Application\Assessments.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Assessments\Assessments.Infrastructure\Assessments.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Assessments\Assessments.Contracts\Assessments.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Identity\Identity.Domain\Identity.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Identity\Identity.Application\Identity.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Identity\Identity.Infrastructure\Identity.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Adapters\Adapters.Email.Smtp\Adapters.Email.Smtp.csproj" />
+    <ProjectReference Include="..\..\src\Adapters\Adapters.Storage.FileSystem\Adapters.Storage.FileSystem.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

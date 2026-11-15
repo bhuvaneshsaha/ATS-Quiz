@@ -1,0 +1,15 @@
+export const en = {
+  openings: 'Openings',
+  candidates: 'Candidates',
+  workspace: 'Workspace',
+  questions: 'Questions',
+  assessments: 'Assessments',
+  grading: 'Grading',
+  people: 'People',
+  signOut: 'Sign out',
+  emptyOpenings: 'No openings match this filter.',
+  emptyCandidates: 'No candidates yet.',
+  emptyQuestions: 'No questions in this function yet.',
+  emptyGrading: 'The grading queue is empty.',
+  inviteQueued: 'The stage was updated. An invite is queued when the stage has a test.',
+};

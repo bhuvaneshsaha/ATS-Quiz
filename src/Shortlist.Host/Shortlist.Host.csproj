@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <RootNamespace>Shortlist.Host</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\BuildingBlocks\BuildingBlocks.Application\BuildingBlocks.Application.csproj" />
+    <ProjectReference Include="..\BuildingBlocks\BuildingBlocks.Infrastructure\BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\Adapters\Adapters.Cache.Memory\Adapters.Cache.Memory.csproj" />
+    <ProjectReference Include="..\Adapters\Adapters.Cache.Valkey\Adapters.Cache.Valkey.csproj" />
+    <ProjectReference Include="..\Adapters\Adapters.Email.Smtp\Adapters.Email.Smtp.csproj" />
+    <ProjectReference Include="..\Adapters\Adapters.Storage.FileSystem\Adapters.Storage.FileSystem.csproj" />
+    <ProjectReference Include="..\Adapters\Adapters.Storage.S3\Adapters.Storage.S3.csproj" />
+    <ProjectReference Include="..\Adapters\Adapters.Storage.AzureBlob\Adapters.Storage.AzureBlob.csproj" />
+    <ProjectReference Include="..\Adapters\Adapters.Pdf.Playwright\Adapters.Pdf.Playwright.csproj" />
+    <ProjectReference Include="..\Adapters\Adapters.Jobs.Quartz\Adapters.Jobs.Quartz.csproj" />
+    <ProjectReference Include="..\Modules\Core\Core.Api\Core.Api.csproj" />
+    <ProjectReference Include="..\Modules\Core\Core.Infrastructure\Core.Infrastructure.csproj" />
+    <ProjectReference Include="..\Modules\Core\Core.Application\Core.Application.csproj" />
+    <ProjectReference Include="..\Modules\Identity\Identity.Api\Identity.Api.csproj" />
+    <ProjectReference Include="..\Modules\Identity\Identity.Infrastructure\Identity.Infrastructure.csproj" />
+    <ProjectReference Include="..\Modules\Identity\Identity.Application\Identity.Application.csproj" />
+    <ProjectReference Include="..\Modules\Assessments\Assessments.Api\Assessments.Api.csproj" />
+    <ProjectReference Include="..\Modules\Assessments\Assessments.Infrastructure\Assessments.Infrastructure.csproj" />
+    <ProjectReference Include="..\Modules\Assessments\Assessments.Application\Assessments.Application.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
+    <PackageReference Include="Scalar.AspNetCore" />
+    <PackageReference Include="Serilog.AspNetCore" />
+  </ItemGroup>
+</Project>
