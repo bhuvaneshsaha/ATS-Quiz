@@ -29,7 +29,7 @@ import { FieldControl } from '../../shared/ui/field';
               [formField]="login.password"
             />
           </app-form-field>
-          @if (session.error(); as message) {
+          @if (formError() || session.error(); as message) {
             <p class="text-sm text-danger" role="alert">{{ message }}</p>
           }
           <button appButton class="w-full" type="submit" [disabled]="login().invalid()" i18n>
@@ -43,6 +43,7 @@ import { FieldControl } from '../../shared/ui/field';
 export class LoginPage {
   private readonly router = inject(Router);
   protected readonly session = inject(SessionStore);
+  protected readonly formError = signal<string | null>(null);
   protected readonly model = signal({ email: '', password: '' });
   protected readonly login = form(this.model, (path) => {
     required(path.email);
@@ -52,7 +53,9 @@ export class LoginPage {
 
   protected async submit(event: Event): Promise<void> {
     event.preventDefault();
+    this.formError.set(null);
     if (this.login().invalid()) {
+      this.formError.set('Enter a valid email and your password.');
       return;
     }
 

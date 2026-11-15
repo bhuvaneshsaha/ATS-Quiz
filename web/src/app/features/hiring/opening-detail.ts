@@ -24,7 +24,10 @@ interface ApplicationRow {
   stageName: string;
   status: string;
   score: number | null;
+  maxScore: number | null;
   passed: boolean | null;
+  resultStatus: string | null;
+  attemptId: string | null;
 }
 
 interface OpeningDetails {
@@ -46,6 +49,14 @@ interface AssessmentRow {
   id: string;
   name: string;
   current: { id: string; isPublished: boolean } | null;
+}
+interface BindingRow {
+  id: string;
+  assessmentVersionId: string;
+  assessmentName: string;
+  validDays: number;
+  extraTimePercent: number;
+  passMarkOverride: number | null;
 }
 
 @Component({
@@ -124,12 +135,16 @@ interface AssessmentRow {
                     <p class="font-semibold">{{ application.candidateName }}</p>
                     <p class="truncate text-sm text-muted">{{ application.candidateEmail }}</p>
                   </div>
-                  <p class="font-semibold tabular-nums">
-                    {{ application.score ?? '—' }}
-                  </p>
+                  <div>
+                    <p class="text-xs font-semibold tracking-label text-muted uppercase" i18n>Score</p>
+                    <p class="font-semibold tabular-nums">{{ scoreLabel(application) }}</p>
+                    @if (application.attemptId) {
+                      <a class="text-sm" [href]="'/api/assessments/v1/results/' + application.attemptId + '/report'" i18n>PDF report</a>
+                    }
+                  </div>
                   <app-status-pill [status]="application.stageName" />
                   <app-form-field label="Move to">
-                    <select appControl (change)="move(application.id, $any($event.target).value)">
+                    <select appControl (change)="move(application.id, $any($event.target))">
                       <option value="">Select a stage</option>
                       @for (stage of item.stages; track stage.id) {
                         <option [value]="stage.id">{{ stage.name }}</option>
@@ -176,9 +191,17 @@ interface AssessmentRow {
 
             <app-card>
               <h2 i18n>Screening test</h2>
+              @if (pinned(); as current) {
+                <p class="text-sm text-ink-soft">
+                  Pinned: {{ current.assessmentName }} · {{ current.validDays }} days · {{ current.extraTimePercent }}% extra time
+                </p>
+              } @else {
+                <p class="text-sm text-muted" i18n>No test is pinned to the assessment stage yet.</p>
+              }
               <form class="flex flex-col gap-3" (submit)="bind($event)">
                 <app-form-field label="Published assessment" [required]="true">
-                  <select appControl name="version">
+                  <select appControl name="version" required>
+                    <option value="" i18n>Select</option>
                     @for (assessment of assessments(); track assessment.id) {
                       @if (assessment.current?.isPublished) {
                         <option [value]="assessment.current?.id">{{ assessment.name }}</option>
@@ -186,10 +209,19 @@ interface AssessmentRow {
                     }
                   </select>
                 </app-form-field>
-                <button appButton variant="secondary" i18n>Change test</button>
+                <app-form-field label="Valid for days">
+                  <input appControl name="validDays" type="number" min="1" value="7" />
+                </app-form-field>
+                <app-form-field label="Extra time %">
+                  <input appControl name="extraTime" type="number" min="0" value="0" />
+                </app-form-field>
+                <app-form-field label="Pass mark override %">
+                  <input appControl name="passMark" type="number" min="0" max="100" />
+                </app-form-field>
+                <button appButton variant="secondary">{{ pinned() ? 'Replace test' : 'Attach test' }}</button>
               </form>
               <p class="text-sm text-muted" i18n>
-                The published version stays pinned, so scores on this opening stay comparable.
+                Replacing the test keeps one version on this stage. People already here, who have not started, are invited.
               </p>
             </app-card>
           </div>
@@ -209,6 +241,7 @@ export class OpeningDetailPage {
   private readonly route = inject(ActivatedRoute);
   protected readonly opening = signal<OpeningDetails | null>(null);
   protected readonly assessments = signal<AssessmentRow[]>([]);
+  protected readonly pinned = signal<BindingRow | null>(null);
   protected readonly notice = signal<string | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly copy = en;
@@ -225,7 +258,17 @@ export class OpeningDetailPage {
     void this.api
       .get<AssessmentRow[]>('/api/assessments/v1/assessments')
       .then((rows) => this.assessments.set(rows))
-      .catch(() => undefined);
+      .catch((error) => this.error.set(problemMessage(error)));
+  }
+
+  protected scoreLabel(application: ApplicationRow): string {
+    if (application.score === null || application.score === undefined) {
+      return '—';
+    }
+    const mark = application.maxScore === null || application.maxScore === undefined ? '' : ` / ${application.maxScore}`;
+    const outcome = application.passed === null || application.passed === undefined ? '' : application.passed ? ' · Passed' : ' · Not passed';
+    const status = application.resultStatus ? ` · ${application.resultStatus}` : '';
+    return `${application.score}${mark}${outcome}${status}`;
   }
 
   protected count(stageId: string): number {
@@ -234,7 +277,19 @@ export class OpeningDetailPage {
 
   private async reload(): Promise<void> {
     const id = this.route.snapshot.paramMap.get('id');
-    this.opening.set(await this.api.get<OpeningDetails>(`/api/core/v1/openings/${id}`));
+    const opening = await this.api.get<OpeningDetails>(`/api/core/v1/openings/${id}`);
+    this.opening.set(opening);
+    const stage = opening.stages.find((item) => item.type === 'Assessment');
+    if (!stage) {
+      this.pinned.set(null);
+      return;
+    }
+    try {
+      const bindings = await this.api.get<BindingRow[]>(`/api/assessments/v1/bindings?openingStageId=${stage.id}`);
+      this.pinned.set(bindings[0] ?? null);
+    } catch {
+      this.pinned.set(null);
+    }
   }
 
   protected summary(item: OpeningDetails): string {
@@ -269,12 +324,14 @@ export class OpeningDetailPage {
     }
   }
 
-  protected async move(applicationId: string, stageId: string): Promise<void> {
+  protected async move(applicationId: string, select: HTMLSelectElement): Promise<void> {
+    const stageId = select.value;
     if (!stageId) {
       return;
     }
 
     this.error.set(null);
+    this.notice.set(null);
     try {
       await this.api.send(
         'POST',
@@ -282,22 +339,29 @@ export class OpeningDetailPage {
         { toStageId: stageId },
       );
       this.notice.set(en.inviteQueued);
+      select.value = '';
       await this.reload();
     } catch (error) {
+      this.notice.set(null);
       this.error.set(problemMessage(error));
+      select.value = '';
     }
   }
 
   protected async bind(event: Event): Promise<void> {
     event.preventDefault();
+    this.error.set(null);
     const form = event.target as HTMLFormElement;
-    const version = new FormData(form).get('version')?.toString();
+    const data = new FormData(form);
+    const version = data.get('version')?.toString();
     const stage = this.opening()?.stages.find((item) => item.type === 'Assessment');
+    const passMark = data.get('passMark')?.toString();
     if (!version || !stage) {
       this.error.set('Publish an assessment and keep the assessment stage.');
       return;
     }
 
+    this.notice.set(null);
     try {
       await this.api.send(
         'POST',
@@ -305,14 +369,16 @@ export class OpeningDetailPage {
         {
           openingStageId: stage.id,
           assessmentVersionId: version,
-          passMarkOverride: null,
-          validDays: 7,
-          extraTimePercent: 0,
+          passMarkOverride: passMark ? Number(passMark) : null,
+          validDays: Number(data.get('validDays') || 7),
+          extraTimePercent: Number(data.get('extraTime') || 0),
         },
         true,
       );
-      this.notice.set('The test is attached to the assessment stage.');
+      this.notice.set('The test is pinned. Candidates already on this stage, who have not started, are invited.');
+      await this.reload();
     } catch (error) {
+      this.notice.set(null);
       this.error.set(problemMessage(error));
     }
   }

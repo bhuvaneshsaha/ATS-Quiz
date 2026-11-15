@@ -99,6 +99,31 @@ public sealed class CoreApplicationReader(CoreDbContext db) : IApplicationReader
         return row;
     }
 
+    public async Task<IReadOnlyList<ApplicationSnapshot>> FindManyAsync(IReadOnlyCollection<Guid> applicationIds, CancellationToken cancellationToken)
+    {
+        if (applicationIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await (
+            from application in db.Applications
+            join candidate in db.Candidates.IgnoreQueryFilters() on application.CandidateId equals candidate.Id
+            where applicationIds.Contains(application.Id)
+            select new ApplicationSnapshot(application.Id, application.OpeningId, application.CandidateId, application.CurrentStageId, candidate.Email, candidate.Name))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ApplicationSnapshot>> ListOnStageAsync(Guid openingStageId, CancellationToken cancellationToken)
+    {
+        return await (
+            from application in db.Applications
+            join candidate in db.Candidates.IgnoreQueryFilters() on application.CandidateId equals candidate.Id
+            where application.CurrentStageId == openingStageId
+            select new ApplicationSnapshot(application.Id, application.OpeningId, application.CandidateId, application.CurrentStageId, candidate.Email, candidate.Name))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<OpeningStageSnapshot?> FindStageAsync(Guid openingStageId, CancellationToken cancellationToken)
     {
         var stage = await db.OpeningStages.SingleOrDefaultAsync(item => item.Id == openingStageId, cancellationToken);

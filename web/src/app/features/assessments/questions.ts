@@ -1,5 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { Api, problemMessage } from '../../core/api';
+import { SessionStore } from '../../core/session';
 import { en } from '../../../locale/en';
 import { Button } from '../../shared/ui/button';
 import { FieldControl } from '../../shared/ui/field';
@@ -8,6 +9,8 @@ import { DataColumn, DataTable } from '../../shared/components/data-table';
 import { FilterChips } from '../../shared/components/filter-chips';
 import { FormField } from '../../shared/components/form-field';
 import { PageHeader } from '../../shared/components/page-header';
+import { typeLabel } from '../take/paper';
+import { DraftOption, QuestionDraft, buildQuestionContent, emptyDraft } from './question-content';
 
 interface Named {
   id: string;
@@ -18,6 +21,7 @@ interface QuestionRow {
   functionId: string;
   status: string;
   type: string;
+  points: number;
   content: { prompt?: string };
 }
 
@@ -45,11 +49,7 @@ interface QuestionRow {
           />
         </app-form-field>
         <app-form-field class="min-w-44 flex-1" label="Function">
-          <select
-            appControl
-            [value]="functionId()"
-            (change)="functionId.set($any($event.target).value)"
-          >
+          <select appControl [value]="functionId()" (change)="functionId.set($any($event.target).value)">
             <option value="" i18n>All functions</option>
             @for (item of functions(); track item.id) {
               <option [value]="item.id">{{ item.name }}</option>
@@ -62,33 +62,129 @@ interface QuestionRow {
         [columns]="columns"
         [rows]="visible()"
         [track]="track"
-        [empty]="copy.emptyQuestions"
+        [empty]="emptyMessage()"
         (activated)="advance($event)"
       />
 
-      <app-card>
-        <h2 i18n>New question</h2>
-        <form class="flex flex-col gap-3" (submit)="create($event)">
-          <app-form-field label="Function" [required]="true">
-            <select appControl name="functionId" required [value]="functionId()">
-              <option value="" i18n>Select</option>
-              @for (item of functions(); track item.id) {
-                <option [value]="item.id">{{ item.name }}</option>
+      @if (canWrite()) {
+        <app-card>
+          <h2 i18n>New question</h2>
+          <form class="flex flex-col gap-3" (submit)="create($event)">
+            <app-form-field label="Function" [required]="true">
+              <select appControl name="functionId" required>
+                <option value="" i18n>Select</option>
+                @for (item of functions(); track item.id) {
+                  <option [value]="item.id">{{ item.name }}</option>
+                }
+              </select>
+            </app-form-field>
+            <app-form-field label="Type" [required]="true">
+              <select appControl [value]="draft().type" (change)="setType($any($event.target).value)">
+                <option value="single_choice">Single choice</option>
+                <option value="multiple_choice">Multiple choice</option>
+                <option value="numeric">Numeric</option>
+                <option value="long_answer">Written answer</option>
+                <option value="ordering">Ordering</option>
+                <option value="matching">Matching</option>
+              </select>
+            </app-form-field>
+            <app-form-field label="Prompt" [required]="true">
+              <textarea appControl rows="3" [value]="draft().prompt" (input)="patch({ prompt: $any($event.target).value })"></textarea>
+            </app-form-field>
+            <app-form-field label="Points" [required]="true">
+              <input
+                appControl
+                type="number"
+                min="0.5"
+                step="0.5"
+                [value]="draft().points"
+                (input)="patch({ points: num($any($event.target).value) })"
+              />
+            </app-form-field>
+
+            @if (draft().type === 'single_choice' || draft().type === 'multiple_choice') {
+              @for (option of draft().options; track option.id) {
+                <div class="flex flex-wrap items-end gap-2">
+                  <app-form-field class="min-w-48 flex-1" [label]="'Option ' + ($index + 1)" [required]="true">
+                    <input appControl [value]="option.text" (input)="setOption(option.id, $any($event.target).value)" />
+                  </app-form-field>
+                  <label class="flex min-h-11 items-center gap-2">
+                    <input
+                      [type]="draft().type === 'single_choice' ? 'radio' : 'checkbox'"
+                      name="correct"
+                      [checked]="option.correct"
+                      (change)="setCorrect(option.id, $any($event.target).checked)"
+                    />
+                    <span i18n>Correct</span>
+                  </label>
+                </div>
               }
-            </select>
-          </app-form-field>
-          <app-form-field label="Prompt" [required]="true">
-            <input appControl name="prompt" required />
-          </app-form-field>
-          <app-form-field label="Correct option" [required]="true">
-            <input appControl name="correct" required />
-          </app-form-field>
-          <app-form-field label="Other option" [required]="true">
-            <input appControl name="wrong" required />
-          </app-form-field>
-          <button appButton class="self-start" i18n>Save draft</button>
-        </form>
-      </app-card>
+              <button appButton variant="secondary" type="button" (click)="addOption()" i18n>Add option</button>
+              @if (draft().type === 'multiple_choice') {
+                <app-form-field label="Partial credit">
+                  <select appControl [value]="draft().partialCredit" (change)="patch({ partialCredit: $any($event.target).value })">
+                    <option value="none">All or nothing</option>
+                    <option value="perCorrectOption">Per correct option</option>
+                  </select>
+                </app-form-field>
+              }
+            }
+
+            @if (draft().type === 'numeric') {
+              <app-form-field label="Correct value" [required]="true">
+                <input appControl type="number" step="any" [value]="draft().correctValue" (input)="patch({ correctValue: $any($event.target).value })" />
+              </app-form-field>
+              <app-form-field label="Tolerance">
+                <input appControl type="number" min="0" step="any" [value]="draft().tolerance" (input)="patch({ tolerance: $any($event.target).value })" />
+              </app-form-field>
+            }
+
+            @if (draft().type === 'long_answer') {
+              <app-form-field label="Rubric">
+                <textarea appControl rows="3" [value]="draft().rubric" (input)="patch({ rubric: $any($event.target).value })"></textarea>
+              </app-form-field>
+            }
+
+            @if (draft().type === 'ordering') {
+              @for (item of draft().items; track $index) {
+                <app-form-field [label]="'Item ' + ($index + 1) + ' in the correct order'" [required]="true">
+                  <input appControl [value]="item" (input)="setItem($index, $any($event.target).value)" />
+                </app-form-field>
+              }
+              <button appButton variant="secondary" type="button" (click)="addItem()" i18n>Add item</button>
+              <app-form-field label="Partial credit">
+                <select appControl [value]="draft().partialCredit" (change)="patch({ partialCredit: $any($event.target).value })">
+                  <option value="none">All or nothing</option>
+                  <option value="perPosition">Per position</option>
+                  <option value="perAdjacentPair">Per adjacent pair</option>
+                </select>
+              </app-form-field>
+            }
+
+            @if (draft().type === 'matching') {
+              @for (pair of draft().pairs; track $index) {
+                <div class="grid gap-2 md:grid-cols-2">
+                  <app-form-field [label]="'Left ' + ($index + 1)" [required]="true">
+                    <input appControl [value]="pair.left" (input)="setPair($index, 'left', $any($event.target).value)" />
+                  </app-form-field>
+                  <app-form-field [label]="'Right ' + ($index + 1)" [required]="true">
+                    <input appControl [value]="pair.right" (input)="setPair($index, 'right', $any($event.target).value)" />
+                  </app-form-field>
+                </div>
+              }
+              <button appButton variant="secondary" type="button" (click)="addPair()" i18n>Add pair</button>
+              <app-form-field label="Partial credit">
+                <select appControl [value]="draft().partialCredit" (change)="patch({ partialCredit: $any($event.target).value })">
+                  <option value="none">All or nothing</option>
+                  <option value="perCorrectOption">Per correct pair</option>
+                </select>
+              </app-form-field>
+            }
+
+            <button appButton class="self-start" i18n>Save draft</button>
+          </form>
+        </app-card>
+      }
       @if (error()) {
         <p class="text-sm text-danger" role="alert">{{ error() }}</p>
       }
@@ -97,6 +193,7 @@ interface QuestionRow {
 })
 export class QuestionsPage {
   private readonly api = inject(Api);
+  private readonly session = inject(SessionStore);
   protected readonly copy = en;
   protected readonly functions = signal<Named[]>([]);
   protected readonly questions = signal<QuestionRow[]>([]);
@@ -104,16 +201,26 @@ export class QuestionsPage {
   protected readonly status = signal('');
   protected readonly search = signal('');
   protected readonly error = signal<string | null>(null);
+  protected readonly draft = signal<QuestionDraft>(emptyDraft());
+  protected readonly canWrite = computed(() => this.session.can('Assessments.Questions.Write'));
   protected readonly columns: DataColumn<QuestionRow>[] = [
     { header: 'Question', value: (row) => row.content.prompt ?? '' },
     { header: 'Type', value: (row) => typeLabel(row.type) },
+    { header: 'Points', value: (row) => String(row.points) },
     { header: 'Function', value: (row) => this.functionName(row.functionId) },
     { header: 'Status', value: (row) => row.status, status: true },
     {
       header: '',
       value: () => '',
-      action: (row) =>
-        row.status === 'Draft' ? 'Submit' : row.status === 'InReview' ? 'Publish' : null,
+      action: (row) => {
+        if (row.status === 'Draft' && this.session.can('Assessments.Questions.Write')) {
+          return 'Submit';
+        }
+        if (row.status === 'InReview' && this.session.can('Assessments.Questions.Approve')) {
+          return 'Publish';
+        }
+        return null;
+      },
     },
   ];
   protected readonly track = (row: QuestionRow) => row.id;
@@ -145,9 +252,15 @@ export class QuestionsPage {
   protected readonly subtitle = computed(
     () => `${this.questions().length} questions · drafts stay editable until they are published`,
   );
+  protected readonly emptyMessage = computed(() =>
+    this.questions().length === 0 ? en.emptyQuestions : 'No questions match this view.',
+  );
 
   constructor() {
-    void this.api.get<Named[]>('/api/core/v1/functions').then((rows) => this.functions.set(rows));
+    void this.api
+      .get<Named[]>('/api/core/v1/functions')
+      .then((rows) => this.functions.set(rows))
+      .catch((error) => this.error.set(problemMessage(error)));
     void this.reload();
   }
 
@@ -155,32 +268,96 @@ export class QuestionsPage {
     return this.functions().find((item) => item.id === id)?.name ?? '';
   }
 
+  protected num(value: string): number {
+    return Number(value);
+  }
+
+  protected patch(partial: Partial<QuestionDraft>): void {
+    this.draft.update((current) => ({ ...current, ...partial }));
+  }
+
+  protected setType(type: string): void {
+    this.draft.update((current) => ({ ...current, type, partialCredit: 'none' }));
+  }
+
+  protected setOption(id: string, text: string): void {
+    this.draft.update((current) => ({
+      ...current,
+      options: current.options.map((option) => (option.id === id ? { ...option, text } : option)),
+    }));
+  }
+
+  protected setCorrect(id: string, correct: boolean): void {
+    this.draft.update((current) => ({
+      ...current,
+      options: current.options.map((option) =>
+        current.type === 'single_choice'
+          ? { ...option, correct: option.id === id }
+          : option.id === id
+            ? { ...option, correct }
+            : option,
+      ),
+    }));
+  }
+
+  protected addOption(): void {
+    this.draft.update((current) => ({
+      ...current,
+      options: [...current.options, { id: crypto.randomUUID(), text: '', correct: false } satisfies DraftOption],
+    }));
+  }
+
+  protected setItem(index: number, text: string): void {
+    this.draft.update((current) => ({
+      ...current,
+      items: current.items.map((item, itemIndex) => (itemIndex === index ? text : item)),
+    }));
+  }
+
+  protected addItem(): void {
+    this.draft.update((current) => ({ ...current, items: [...current.items, ''] }));
+  }
+
+  protected setPair(index: number, side: 'left' | 'right', text: string): void {
+    this.draft.update((current) => ({
+      ...current,
+      pairs: current.pairs.map((pair, pairIndex) => (pairIndex === index ? { ...pair, [side]: text } : pair)),
+    }));
+  }
+
+  protected addPair(): void {
+    this.draft.update((current) => ({ ...current, pairs: [...current.pairs, { left: '', right: '' }] }));
+  }
+
   protected async create(event: Event): Promise<void> {
     event.preventDefault();
-    const data = new FormData(event.target as HTMLFormElement);
+    const form = event.target as HTMLFormElement;
+    const functionId = new FormData(form).get('functionId')?.toString() ?? '';
     this.error.set(null);
+    if (!functionId) {
+      this.error.set('Choose a function.');
+      return;
+    }
+    const built = buildQuestionContent(this.draft());
+    if ('error' in built) {
+      this.error.set(built.error);
+      return;
+    }
     try {
       await this.api.send(
         'POST',
         '/api/assessments/v1/questions',
         {
-          functionId: data.get('functionId'),
-          points: 4,
+          functionId,
+          points: this.draft().points,
           timeLimitSeconds: null,
           skillIds: [],
-          content: {
-            type: 'single_choice',
-            prompt: data.get('prompt'),
-            attachments: [],
-            options: [
-              { id: crypto.randomUUID(), text: data.get('correct'), isCorrect: true },
-              { id: crypto.randomUUID(), text: data.get('wrong'), isCorrect: false },
-            ],
-          },
+          content: built.content,
         },
         true,
       );
-      (event.target as HTMLFormElement).reset();
+      this.draft.set(emptyDraft());
+      form.reset();
       await this.reload();
     } catch (error) {
       this.error.set(problemMessage(error));
@@ -188,30 +365,25 @@ export class QuestionsPage {
   }
 
   protected async advance(question: QuestionRow): Promise<void> {
-    if (question.status === 'Draft') {
-      await this.submit(question.id);
+    this.error.set(null);
+    try {
+      if (question.status === 'Draft') {
+        await this.api.send('POST', `/api/assessments/v1/questions/${question.id}/submit`, {});
+      }
+      if (question.status === 'InReview') {
+        await this.api.send('POST', `/api/assessments/v1/questions/${question.id}/publish`, {});
+      }
+      await this.reload();
+    } catch (error) {
+      this.error.set(problemMessage(error));
     }
-    if (question.status === 'InReview') {
-      await this.publish(question.id);
-    }
-  }
-
-  protected async submit(id: string): Promise<void> {
-    await this.api.send('POST', `/api/assessments/v1/questions/${id}/submit`, {});
-    await this.reload();
-  }
-
-  protected async publish(id: string): Promise<void> {
-    await this.api.send('POST', `/api/assessments/v1/questions/${id}/publish`, {});
-    await this.reload();
   }
 
   private async reload(): Promise<void> {
-    this.questions.set(await this.api.get<QuestionRow[]>('/api/assessments/v1/questions'));
+    try {
+      this.questions.set(await this.api.get<QuestionRow[]>('/api/assessments/v1/questions'));
+    } catch (error) {
+      this.error.set(problemMessage(error));
+    }
   }
-}
-
-function typeLabel(type: string): string {
-  const text = type.replaceAll('_', ' ');
-  return text ? text.charAt(0).toUpperCase() + text.slice(1) : type;
 }

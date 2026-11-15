@@ -16,6 +16,8 @@ public sealed record ApplicationStageChanged(
 public interface IApplicationReader
 {
     Task<ApplicationSnapshot?> FindAsync(Guid applicationId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ApplicationSnapshot>> FindManyAsync(IReadOnlyCollection<Guid> applicationIds, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ApplicationSnapshot>> ListOnStageAsync(Guid openingStageId, CancellationToken cancellationToken);
     Task<OpeningStageSnapshot?> FindStageAsync(Guid openingStageId, CancellationToken cancellationToken);
 }
 

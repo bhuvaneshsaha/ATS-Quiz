@@ -336,7 +336,8 @@ internal static class OpeningReader
                 result == null ? null : result.Total,
                 result == null ? null : result.Max,
                 result == null ? null : result.Passed,
-                result == null ? null : result.Status))
+                result == null ? null : result.Status,
+                result == null ? null : result.AttemptId))
             .ToListAsync(cancellationToken);
 
         var stages = opening.Stages.OrderBy(stage => stage.Order)

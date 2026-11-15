@@ -15,7 +15,11 @@ export const routes: Routes = [
     canActivate: [staffGuard],
     loadComponent: () => import('./features/shell/shell').then((module) => module.ShellPage),
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'openings' },
+      {
+        path: '',
+        pathMatch: 'full',
+        loadComponent: () => import('./features/shell/home').then((module) => module.HomePage),
+      },
       {
         path: 'openings',
         loadComponent: () =>
@@ -50,6 +54,11 @@ export const routes: Routes = [
         path: 'grading',
         loadComponent: () =>
           import('./features/assessments/grading').then((module) => module.GradingPage),
+      },
+      {
+        path: 'results',
+        loadComponent: () =>
+          import('./features/assessments/results').then((module) => module.ResultsPage),
       },
       {
         path: 'people',

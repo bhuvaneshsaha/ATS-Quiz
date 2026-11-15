@@ -25,7 +25,12 @@ internal static class Secrets
     public static string NewCode() => RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
 }
 
-internal sealed class CreateBindingHandler(AssessmentsDbContext db) : ICommandHandler<CreateBinding, Result<BindingResponse>>
+internal sealed class CreateBindingHandler(
+    AssessmentsDbContext db,
+    IApplicationReader applications,
+    IEmailSender email,
+    IClock clock,
+    IConfiguration configuration) : ICommandHandler<CreateBinding, Result<BindingResponse>>
 {
     public async Task<Result<BindingResponse>> Handle(CreateBinding command, CancellationToken cancellationToken)
     {
@@ -35,14 +40,121 @@ internal sealed class CreateBindingHandler(AssessmentsDbContext db) : ICommandHa
             return Error.ConflictError("binding.version", "Bind a published assessment version.");
         }
 
-        var binding = StageBinding.Create(command.OpeningStageId, command.AssessmentVersionId, command.PassMarkOverride, command.ValidDays <= 0 ? 7 : command.ValidDays, Math.Max(0, command.ExtraTimePercent));
-        db.StageBindings.Add(binding);
+        var validDays = command.ValidDays <= 0 ? 7 : command.ValidDays;
+        var extra = Math.Max(0, command.ExtraTimePercent);
+        var existing = await db.StageBindings.Where(item => item.OpeningStageId == command.OpeningStageId).OrderBy(item => item.CreatedAt).ToListAsync(cancellationToken);
+        StageBinding binding;
+        if (existing.Count == 0)
+        {
+            binding = StageBinding.Create(command.OpeningStageId, command.AssessmentVersionId, command.PassMarkOverride, validDays, extra);
+            db.StageBindings.Add(binding);
+        }
+        else
+        {
+            binding = existing[0];
+            binding.Retarget(command.AssessmentVersionId, command.PassMarkOverride, validDays, extra);
+            if (existing.Count > 1)
+            {
+                db.StageBindings.RemoveRange(existing.Skip(1));
+            }
+        }
+
         await db.SaveChangesAsync(cancellationToken);
-        return Map(binding);
+        await InvitationMailer.InviteSittingAsync(db, applications, email, clock, configuration, binding, cancellationToken);
+        var name = await AssessmentName(db, binding.AssessmentVersionId, cancellationToken);
+        return Map(binding, name);
     }
 
-    internal static BindingResponse Map(StageBinding binding) =>
-        new(binding.Id, binding.OpeningStageId, binding.AssessmentVersionId, binding.PassMarkOverride, binding.ValidDays, binding.ExtraTimePercent);
+    internal static async Task<string> AssessmentName(AssessmentsDbContext db, Guid versionId, CancellationToken cancellationToken)
+    {
+        var version = await db.AssessmentVersions.SingleAsync(item => item.Id == versionId, cancellationToken);
+        var assessment = await db.Assessments.SingleAsync(item => item.Id == version.AssessmentId, cancellationToken);
+        return assessment.Name;
+    }
+
+    internal static BindingResponse Map(StageBinding binding, string assessmentName) =>
+        new(binding.Id, binding.OpeningStageId, binding.AssessmentVersionId, binding.PassMarkOverride, binding.ValidDays, binding.ExtraTimePercent, assessmentName);
+}
+
+internal static class InvitationMailer
+{
+    public static async Task SendAsync(AssessmentsDbContext db, IEmailSender email, IClock clock, IConfiguration configuration, Invitation invitation, string candidateEmail, CancellationToken cancellationToken)
+    {
+        var token = Secrets.NewToken();
+        invitation.ReplaceToken(Secrets.Hash(token));
+        await db.SaveChangesAsync(cancellationToken);
+        var link = $"{configuration["App:PublicBaseUrl"]?.TrimEnd('/')}/take/{token}";
+        await email.SendAsync(new EmailMessage(candidateEmail, "You are invited to a Shortlist assessment", $"Open your assessment: {link}\nThis link expires {invitation.ExpiresAt:u}."), cancellationToken);
+        invitation.MarkSent(clock.UtcNow);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public static async Task InviteSittingAsync(
+        AssessmentsDbContext db,
+        IApplicationReader applications,
+        IEmailSender email,
+        IClock clock,
+        IConfiguration configuration,
+        StageBinding binding,
+        CancellationToken cancellationToken)
+    {
+        var sitting = await applications.ListOnStageAsync(binding.OpeningStageId, cancellationToken);
+        foreach (var snapshot in sitting)
+        {
+            var invitation = await db.Invitations
+                .Where(item => item.ApplicationId == snapshot.Id)
+                .OrderByDescending(item => item.CreatedAt)
+                .FirstOrDefaultAsync(cancellationToken);
+            var attempt = invitation is null
+                ? null
+                : await db.Attempts.SingleOrDefaultAsync(item => item.InvitationId == invitation.Id, cancellationToken);
+            if (attempt is not null || invitation?.Status is InvitationStatus.Started)
+            {
+                continue;
+            }
+
+            if (invitation is null || invitation.Status is InvitationStatus.Submitted or InvitationStatus.Expired or InvitationStatus.Cancelled)
+            {
+                invitation = Invitation.Create(snapshot.Id, binding.Id, binding.AssessmentVersionId, Secrets.Hash(Secrets.NewToken()), clock.UtcNow.AddDays(binding.ValidDays), binding.ExtraTimePercent, Guid.CreateVersion7(), snapshot.CandidateEmail);
+                db.Invitations.Add(invitation);
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            else
+            {
+                invitation.PointAt(binding.Id, binding.AssessmentVersionId, clock.UtcNow.AddDays(binding.ValidDays), binding.ExtraTimePercent);
+            }
+
+            await SendAsync(db, email, clock, configuration, invitation, snapshot.CandidateEmail, cancellationToken);
+        }
+    }
+}
+
+internal sealed class ListBindingsHandler(AssessmentsDbContext db) : IQueryHandler<ListBindings, Result<IReadOnlyList<BindingResponse>>>
+{
+    public async Task<Result<IReadOnlyList<BindingResponse>>> Handle(ListBindings query, CancellationToken cancellationToken)
+    {
+        var bindings = db.StageBindings.AsQueryable();
+        if (query.OpeningStageId is Guid stageId)
+        {
+            bindings = bindings.Where(item => item.OpeningStageId == stageId);
+        }
+
+        var rows = await bindings.OrderByDescending(item => item.CreatedAt).Take(100).ToListAsync(cancellationToken);
+        var names = new Dictionary<Guid, string>();
+        var responses = new List<BindingResponse>();
+        foreach (var binding in rows)
+        {
+            if (!names.TryGetValue(binding.AssessmentVersionId, out var name))
+            {
+                name = await CreateBindingHandler.AssessmentName(db, binding.AssessmentVersionId, cancellationToken);
+                names[binding.AssessmentVersionId] = name;
+            }
+
+            responses.Add(CreateBindingHandler.Map(binding, name));
+        }
+
+        return responses;
+    }
 }
 
 internal sealed class ListInvitationsHandler(AssessmentsDbContext db) : IQueryHandler<ListInvitations, Result<IReadOnlyList<InvitationResponse>>>
@@ -156,7 +268,33 @@ internal sealed class VerifyCandidateCodeHandler(AssessmentsDbContext db, IClock
             return Error.Validation(failure.Value.Code, failure.Value.Message);
         }
 
-        return new VerifiedCandidate(invitation.Id, invitation.WorkspaceId, invitation.CandidateEmail);
+        return await CandidateSessions.DescribeAsync(db, invitation, cancellationToken);
+    }
+}
+
+internal static class CandidateSessions
+{
+    public static async Task<VerifiedCandidate> DescribeAsync(AssessmentsDbContext db, Invitation invitation, CancellationToken cancellationToken)
+    {
+        var version = await db.AssessmentVersions.Include(item => item.Sections).SingleAsync(item => item.Id == invitation.AssessmentVersionId, cancellationToken);
+        var assessment = await db.Assessments.SingleAsync(item => item.Id == version.AssessmentId, cancellationToken);
+        var started = await db.Attempts.AnyAsync(item => item.InvitationId == invitation.Id, cancellationToken);
+        return new VerifiedCandidate(invitation.Id, invitation.WorkspaceId, invitation.CandidateEmail, assessment.Name, version.DesktopOnly, version.TotalMinutes, started);
+    }
+}
+
+internal sealed class GetCandidateSessionHandler(AssessmentsDbContext db, ICurrentUser currentUser) : IQueryHandler<GetCandidateSession, Result<CandidateSessionResponse>>
+{
+    public async Task<Result<CandidateSessionResponse>> Handle(GetCandidateSession query, CancellationToken cancellationToken)
+    {
+        var invitation = await StartAttemptHandler.CurrentInvitation(db, currentUser, cancellationToken);
+        if (invitation is null)
+        {
+            return Error.ForbiddenError("candidate.session", "Open your invitation again.");
+        }
+
+        var described = await CandidateSessions.DescribeAsync(db, invitation, cancellationToken);
+        return new CandidateSessionResponse(described.InvitationId, described.AssessmentName, described.DesktopOnly, described.TotalMinutes, described.AttemptStarted);
     }
 }
 
@@ -173,6 +311,11 @@ internal sealed class StartAttemptHandler(AssessmentsDbContext db, ICurrentUser 
         var existing = await db.Attempts.SingleOrDefaultAsync(attempt => attempt.InvitationId == invitation.Id, cancellationToken);
         if (existing is not null)
         {
+            if (existing.Status != AttemptStatus.InProgress)
+            {
+                return Error.ConflictError("attempt.closed", "This attempt is already finished.");
+            }
+
             return await PaperBuilder.BuildAsync(db, existing, cancellationToken);
         }
 
@@ -263,16 +406,21 @@ internal static class PaperBuilder
             section.Name,
             section.Minutes,
             section.Weight,
+            attempt.SectionDeadline(section.SectionId),
             section.QuestionVersionIds.Where(versions.ContainsKey).Select(id =>
             {
                 var presented = QuestionPresenter.Present(versions[id], attempt.Id);
                 return JsonSerializer.SerializeToElement(presented, QuestionJson.Options);
             }).ToList())).ToList();
-        return new PaperResponse(attempt.Id, DateTimeOffset.UtcNow, attempt.Deadline, version.DesktopOnly, sections);
+        var answers = await db.Answers.Where(answer => answer.AttemptId == attempt.Id).ToListAsync(cancellationToken);
+        var saved = answers.Select(answer => new SavedAnswerResponse(
+            answer.QuestionVersionId,
+            JsonSerializer.Deserialize<JsonElement>(answer.ResponseJson, QuestionJson.Options))).ToList();
+        return new PaperResponse(attempt.Id, DateTimeOffset.UtcNow, attempt.Deadline, version.DesktopOnly, sections, saved);
     }
 }
 
-internal sealed class SaveAnswerHandler(AssessmentsDbContext db, IClock clock) : ICommandHandler<SaveAnswer, Result<SaveAnswerResponse>>
+internal sealed class SaveAnswerHandler(AssessmentsDbContext db, ICurrentUser currentUser, IClock clock) : ICommandHandler<SaveAnswer, Result<SaveAnswerResponse>>
 {
     public async Task<Result<SaveAnswerResponse>> Handle(SaveAnswer command, CancellationToken cancellationToken)
     {
@@ -280,6 +428,11 @@ internal sealed class SaveAnswerHandler(AssessmentsDbContext db, IClock clock) :
         if (attempt is null)
         {
             return Error.NotFoundError("attempt.not_found", "Attempt was not found.");
+        }
+
+        if (currentUser.InvitationId != attempt.InvitationId)
+        {
+            return Error.ForbiddenError("candidate.session", "Open your invitation again.");
         }
 
         var now = clock.UtcNow;
@@ -307,10 +460,23 @@ internal sealed class SaveAnswerHandler(AssessmentsDbContext db, IClock clock) :
     }
 }
 
-internal sealed class SubmitAttemptHandler(AttemptFinalizer finalizer) : ICommandHandler<SubmitAttempt, Result<ResultResponse>>
+internal sealed class SubmitAttemptHandler(AssessmentsDbContext db, ICurrentUser currentUser, AttemptFinalizer finalizer) : ICommandHandler<SubmitAttempt, Result<ResultResponse>>
 {
-    public Task<Result<ResultResponse>> Handle(SubmitAttempt command, CancellationToken cancellationToken) =>
-        finalizer.CloseAndScoreAsync(command.AttemptId, AttemptStatus.Submitted, cancellationToken);
+    public async Task<Result<ResultResponse>> Handle(SubmitAttempt command, CancellationToken cancellationToken)
+    {
+        var attempt = await db.Attempts.SingleOrDefaultAsync(item => item.Id == command.AttemptId, cancellationToken);
+        if (attempt is null)
+        {
+            return Error.NotFoundError("attempt.not_found", "Attempt was not found.");
+        }
+
+        if (currentUser.InvitationId != attempt.InvitationId)
+        {
+            return Error.ForbiddenError("candidate.session", "Open your invitation again.");
+        }
+
+        return await finalizer.CloseAndScoreAsync(command.AttemptId, AttemptStatus.Submitted, cancellationToken);
+    }
 }
 
 internal sealed class RecordIntegrityHandler(AssessmentsDbContext db, IClock clock) : ICommandHandler<RecordIntegrity, Result>
@@ -401,8 +567,18 @@ public sealed class AttemptFinalizer(AssessmentsDbContext db, IClock clock)
             return Error.NotFoundError("attempt.not_found", "Attempt was not found.");
         }
 
+        if (closeAs is not null && attempt.Status != AttemptStatus.InProgress)
+        {
+            var already = await db.Results.SingleOrDefaultAsync(item => item.AttemptId == attempt.Id, cancellationToken);
+            if (already is not null)
+            {
+                return Map(already);
+            }
+        }
+
         if (closeAs is AttemptStatus status)
         {
+            status = Attempt.StatusForClose(status, clock.UtcNow, attempt.Deadline);
             attempt.Close(status, clock.UtcNow);
             var invitation = await db.Invitations.SingleAsync(item => item.Id == attempt.InvitationId, cancellationToken);
             if (status == AttemptStatus.Submitted)
@@ -505,7 +681,28 @@ public sealed class AttemptFinalizer(AssessmentsDbContext db, IClock clock)
         }
 
         await db.SaveChangesAsync(cancellationToken);
-        return new ResultResponse(existing.AttemptId, existing.ApplicationId, existing.Total, existing.Max, existing.Passed, existing.Status.ToString(), existing.SectionScoresJson);
+        return Map(existing);
+    }
+
+    private static ResultResponse Map(AssessmentResult result) =>
+        new(result.AttemptId, result.ApplicationId, result.Total, result.Max, result.Passed, result.Status.ToString(), result.SectionScoresJson);
+}
+
+internal sealed class ListResultsHandler(AssessmentsDbContext db, IApplicationReader applications) : IQueryHandler<ListResults, Result<IReadOnlyList<ResultListItem>>>
+{
+    public async Task<Result<IReadOnlyList<ResultListItem>>> Handle(ListResults query, CancellationToken cancellationToken)
+    {
+        var rows = await db.Results.OrderByDescending(item => item.CreatedAt).Take(100).ToListAsync(cancellationToken);
+        var names = (await applications.FindManyAsync(rows.Select(item => item.ApplicationId).Distinct().ToList(), cancellationToken))
+            .ToDictionary(item => item.Id, item => item.CandidateName);
+        return rows.Select(item => new ResultListItem(
+            item.AttemptId,
+            item.ApplicationId,
+            names.TryGetValue(item.ApplicationId, out var name) ? name : "Candidate",
+            item.Total,
+            item.Max,
+            item.Passed,
+            item.Status.ToString())).ToList();
     }
 }
 

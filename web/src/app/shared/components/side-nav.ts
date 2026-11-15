@@ -91,7 +91,7 @@ export class SideNav {
         {
           path: '/questions',
           label: en.questions,
-          permission: 'Assessments.Questions.Write',
+          permission: 'Assessments.Questions.Read',
           module: 'Assessments',
         },
         {
@@ -104,6 +104,12 @@ export class SideNav {
           path: '/grading',
           label: en.grading,
           permission: 'Assessments.Grading.Grade',
+          module: 'Assessments',
+        },
+        {
+          path: '/results',
+          label: en.results,
+          permission: 'Assessments.Results.View',
           module: 'Assessments',
         },
       ],

@@ -125,7 +125,7 @@ internal sealed class AddApplicationHandler(CoreDbContext db) : ICommandHandler<
         db.Applications.Add(application);
         db.StageTransitions.Add(StageTransition.Record(application.Id, null, applied.Id, null, null, DateTimeOffset.UtcNow));
         await db.SaveChangesAsync(cancellationToken);
-        return new ApplicationResponse(application.Id, candidate.Id, candidate.Name, candidate.Email, applied.Id, applied.DisplayName, application.Status.ToString(), null, null, null, null);
+        return new ApplicationResponse(application.Id, candidate.Id, candidate.Name, candidate.Email, applied.Id, applied.DisplayName, application.Status.ToString(), null, null, null, null, null);
     }
 }
 
@@ -150,7 +150,7 @@ internal sealed class MoveApplicationStageHandler(CoreDbContext db, IClock clock
         db.StageTransitions.Add(StageTransition.Record(application.Id, from, stage.Id, currentUser.UserId, null, clock.UtcNow));
         await db.SaveChangesAsync(cancellationToken);
         var candidate = await db.Candidates.SingleAsync(item => item.Id == application.CandidateId, cancellationToken);
-        return new ApplicationResponse(application.Id, candidate.Id, candidate.Name, candidate.Email, stage.Id, stage.DisplayName, application.Status.ToString(), null, null, null, null);
+        return new ApplicationResponse(application.Id, candidate.Id, candidate.Name, candidate.Email, stage.Id, stage.DisplayName, application.Status.ToString(), null, null, null, null, null);
     }
 }
 
@@ -266,7 +266,7 @@ internal static class CandidateReader
             from application in db.Applications
             join stage in db.OpeningStages on application.CurrentStageId equals stage.Id
             where application.CandidateId == id
-            select new ApplicationResponse(application.Id, candidate.Id, candidate.Name, candidate.Email, stage.Id, stage.DisplayName, application.Status.ToString(), null, null, null, null))
+            select new ApplicationResponse(application.Id, candidate.Id, candidate.Name, candidate.Email, stage.Id, stage.DisplayName, application.Status.ToString(), null, null, null, null, null))
             .ToListAsync(cancellationToken);
         var notes = await db.Notes.Where(note => note.CandidateId == id).OrderByDescending(note => note.CreatedAt)
             .Select(note => new NoteResponse(note.Id, note.Body, note.AuthorUserId, note.CreatedAt))

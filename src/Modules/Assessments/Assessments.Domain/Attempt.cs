@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Shortlist.BuildingBlocks.Abstractions;
 
 namespace Shortlist.Modules.Assessments.Domain;
@@ -56,6 +57,20 @@ public sealed class Invitation : Entity, IAudited
         };
 
     public void ReplaceToken(string tokenHash) => TokenHash = tokenHash;
+
+    public void PointAt(Guid stageBindingId, Guid assessmentVersionId, DateTimeOffset expiresAt, int extraTimePercent)
+    {
+        if (Status is InvitationStatus.Started or InvitationStatus.Submitted or InvitationStatus.Expired or InvitationStatus.Cancelled)
+        {
+            return;
+        }
+
+        StageBindingId = stageBindingId;
+        AssessmentVersionId = assessmentVersionId;
+        ExpiresAt = expiresAt;
+        ExtraTimePercent = extraTimePercent;
+        Status = InvitationStatus.Pending;
+    }
 
     public void MarkSent(DateTimeOffset now)
     {
@@ -146,17 +161,48 @@ public sealed class Attempt : Entity, IAudited
 
     public bool Contains(Guid questionVersionId) => ReadPaper().Contains(questionVersionId);
 
-    public DateTimeOffset SectionDeadline(Guid sectionId) => Deadline;
+    public DateTimeOffset SectionDeadline(Guid sectionId)
+    {
+        var paper = ReadPaper();
+        var total = paper.Sections.Sum(section => Math.Max(0, section.Minutes));
+        if (total <= 0)
+        {
+            return Deadline;
+        }
+
+        var consumed = 0;
+        foreach (var section in paper.Sections)
+        {
+            consumed += Math.Max(0, section.Minutes);
+            if (section.SectionId == sectionId)
+            {
+                var fraction = consumed / (double)total;
+                return StartedAt.AddSeconds((Deadline - StartedAt).TotalSeconds * fraction);
+            }
+        }
+
+        return Deadline;
+    }
 
     public RuleFailure? EnsureOpen(DateTimeOffset now, Guid? sectionId = null)
     {
-        if (Status != AttemptStatus.InProgress || now > Deadline || (sectionId is Guid id && now > SectionDeadline(id)))
+        if (Status != AttemptStatus.InProgress || now > Deadline)
         {
             return new RuleFailure("attempt.closed", "This attempt is closed.");
         }
 
+        if (sectionId is Guid id && now > SectionDeadline(id))
+        {
+            return new RuleFailure("attempt.section_closed", "Time for this section has ended.");
+        }
+
         return null;
     }
+
+    public static AttemptStatus StatusForClose(AttemptStatus requested, DateTimeOffset now, DateTimeOffset deadline) =>
+        requested == AttemptStatus.Submitted && now > deadline.AddSeconds(5)
+            ? AttemptStatus.Expired
+            : requested;
 
     public void Close(AttemptStatus status, DateTimeOffset now)
     {
@@ -276,11 +322,7 @@ public sealed class AssessmentResult : Entity, IAudited
             Status = status
         };
 
-        if (status == ResultStatus.Final)
-        {
-            result.Raise(new ResultPublished(Guid.CreateVersion7(), now, attemptId, applicationId, total, max, passed, status.ToString()));
-        }
-
+        result.Raise(new ResultPublished(Guid.CreateVersion7(), now, attemptId, applicationId, total, max, passed, status.ToString()));
         return result;
     }
 
@@ -291,10 +333,7 @@ public sealed class AssessmentResult : Entity, IAudited
         Max = max;
         Passed = passed;
         Status = status;
-        if (status == ResultStatus.Final)
-        {
-            Raise(new ResultPublished(Guid.CreateVersion7(), now, AttemptId, ApplicationId, Total, Max, Passed, Status.ToString()));
-        }
+        Raise(new ResultPublished(Guid.CreateVersion7(), now, AttemptId, ApplicationId, Total, Max, Passed, Status.ToString()));
     }
 }
 
@@ -321,10 +360,17 @@ public sealed class IntegrityEvent : Entity
 
 public static class QuestionJson
 {
-    public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
+    public static readonly JsonSerializerOptions Options = Create();
+
+    private static JsonSerializerOptions Create()
     {
-        PropertyNameCaseInsensitive = true
-    };
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            PropertyNameCaseInsensitive = true
+        };
+        options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
+        return options;
+    }
 }
 
 public sealed record PresentedOption(Guid Id, string Text);
