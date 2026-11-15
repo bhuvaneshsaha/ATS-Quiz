@@ -1,38 +1,87 @@
 import { Component, inject, signal } from '@angular/core';
 import { Api, problemMessage } from '../../core/api';
 import { en } from '../../../locale/en';
+import { Button } from '../../shared/ui/button';
+import { FieldControl } from '../../shared/ui/field';
+import { Card } from '../../shared/components/card';
+import { FormField } from '../../shared/components/form-field';
+import { PageHeader } from '../../shared/components/page-header';
+import { StatusPill } from '../../shared/components/status-pill';
 
-interface Named { id: string; name: string }
-interface QuestionRow { id: string; status: string; type: string; content: { prompt?: string } }
+interface Named {
+  id: string;
+  name: string;
+}
+interface QuestionRow {
+  id: string;
+  status: string;
+  type: string;
+  content: { prompt?: string };
+}
 
 @Component({
   selector: 'app-questions',
+  imports: [Button, FieldControl, Card, FormField, PageHeader, StatusPill],
   template: `
-    <section class="mx-auto max-w-5xl px-4 py-6">
-      <h1 class="font-serif text-3xl" i18n>Question bank</h1>
-      <label class="mt-4 block text-sm" i18n>Function
-        <select class="mt-1 h-11 w-full rounded-lg border border-line bg-card px-3 md:w-72" (change)="load($any($event.target).value)">
+    <section class="page">
+      <app-page-header>
+        <ng-container pageTitle i18n>Question bank</ng-container>
+        <ng-container pageSubtitle i18n>Drafts stay editable until they are published</ng-container>
+      </app-page-header>
+      <app-form-field label="Function" [required]="true">
+        <select appControl class="md:max-w-xs" (change)="load($any($event.target).value)">
           <option value="">Select</option>
-          @for (item of functions(); track item.id) { <option [value]="item.id">{{ item.name }}</option> }
+          @for (item of functions(); track item.id) {
+            <option [value]="item.id">{{ item.name }}</option>
+          }
         </select>
-      </label>
-      <ul class="mt-6 space-y-2">
+      </app-form-field>
+      <ul class="flex flex-col gap-2">
         @for (question of questions(); track question.id) {
-          <li class="flex items-center justify-between rounded-xl border border-line bg-card px-3 py-3 text-sm">
-            <span>{{ question.content.prompt }} · {{ question.status }}</span>
-            @if (question.status === 'Draft') { <button class="h-11 rounded-lg border border-line px-3" type="button" (click)="submit(question.id)" i18n>Submit</button> }
-            @if (question.status === 'InReview') { <button class="h-11 rounded-lg bg-teal px-3 text-card" type="button" (click)="publish(question.id)" i18n>Publish</button> }
+          <li
+            class="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line bg-surface px-4 py-3"
+          >
+            <span>{{ question.content.prompt }}</span>
+            <span class="flex items-center gap-2">
+              <app-status-pill [status]="question.status" />
+              @if (question.status === 'Draft') {
+                <button
+                  appButton
+                  variant="secondary"
+                  type="button"
+                  (click)="submit(question.id)"
+                  i18n
+                >
+                  Submit
+                </button>
+              }
+              @if (question.status === 'InReview') {
+                <button appButton type="button" (click)="publish(question.id)" i18n>Publish</button>
+              }
+            </span>
           </li>
-        } @empty { <li class="text-sm text-ink/70">{{ copy.emptyQuestions }}</li> }
+        } @empty {
+          <li class="text-muted">{{ copy.emptyQuestions }}</li>
+        }
       </ul>
-      <form class="mt-8 space-y-3 rounded-2xl border border-line bg-card p-4" (submit)="create($event)">
-        <h2 class="font-serif text-xl" i18n>Single choice</h2>
-        <input class="h-11 w-full rounded-lg border border-line px-3" name="prompt" required i18n-placeholder placeholder="Prompt" />
-        <input class="h-11 w-full rounded-lg border border-line px-3" name="correct" required i18n-placeholder placeholder="Correct option" />
-        <input class="h-11 w-full rounded-lg border border-line px-3" name="wrong" required i18n-placeholder placeholder="Other option" />
-        <button class="h-11 rounded-lg bg-teal px-4 text-card" i18n>Save draft</button>
-      </form>
-      @if (error()) { <p class="mt-4 text-sm text-clay" role="alert">{{ error() }}</p> }
+      <app-card>
+        <h2 i18n>Single choice</h2>
+        <form class="flex flex-col gap-3" (submit)="create($event)">
+          <app-form-field label="Prompt" [required]="true">
+            <input appControl name="prompt" required />
+          </app-form-field>
+          <app-form-field label="Correct option" [required]="true">
+            <input appControl name="correct" required />
+          </app-form-field>
+          <app-form-field label="Other option" [required]="true">
+            <input appControl name="wrong" required />
+          </app-form-field>
+          <button appButton i18n>Save draft</button>
+        </form>
+      </app-card>
+      @if (error()) {
+        <p class="text-sm text-danger" role="alert">{{ error() }}</p>
+      }
     </section>
   `,
 })
@@ -54,7 +103,9 @@ export class QuestionsPage {
       this.questions.set([]);
       return;
     }
-    this.questions.set(await this.api.get<QuestionRow[]>(`/api/assessments/v1/questions?functionId=${functionId}`));
+    this.questions.set(
+      await this.api.get<QuestionRow[]>(`/api/assessments/v1/questions?functionId=${functionId}`),
+    );
   }
 
   protected async create(event: Event): Promise<void> {
@@ -62,21 +113,26 @@ export class QuestionsPage {
     const data = new FormData(event.target as HTMLFormElement);
     this.error.set(null);
     try {
-      await this.api.send('POST', '/api/assessments/v1/questions', {
-        functionId: this.functionId(),
-        points: 4,
-        timeLimitSeconds: null,
-        skillIds: [],
-        content: {
-          type: 'single_choice',
-          prompt: data.get('prompt'),
-          attachments: [],
-          options: [
-            { id: crypto.randomUUID(), text: data.get('correct'), isCorrect: true },
-            { id: crypto.randomUUID(), text: data.get('wrong'), isCorrect: false },
-          ],
+      await this.api.send(
+        'POST',
+        '/api/assessments/v1/questions',
+        {
+          functionId: this.functionId(),
+          points: 4,
+          timeLimitSeconds: null,
+          skillIds: [],
+          content: {
+            type: 'single_choice',
+            prompt: data.get('prompt'),
+            attachments: [],
+            options: [
+              { id: crypto.randomUUID(), text: data.get('correct'), isCorrect: true },
+              { id: crypto.randomUUID(), text: data.get('wrong'), isCorrect: false },
+            ],
+          },
         },
-      }, true);
+        true,
+      );
       (event.target as HTMLFormElement).reset();
       await this.load(this.functionId());
     } catch (error) {

@@ -50,4 +50,4 @@ Modules are switched with `Modules:{Name}:Enabled`.
 
 ## Licence check
 
-NuGet and npm dependencies must use MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, 0BSD, Unlicense, the PostgreSQL licence, or MS-PL. The check also allows BlueOak-1.0.0 (graceful-fs) and MPL-2.0 (lightningcss, required by Tailwind CSS 4). Any other licence fails `build/check-licenses.sh`.
+NuGet and npm dependencies must use MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, 0BSD, Unlicense, the PostgreSQL licence, or MS-PL. The check also allows BlueOak-1.0.0 (graceful-fs), MPL-2.0 (lightningcss, required by Tailwind CSS 4), CC-BY-4.0 (caniuse-lite), and OFL-1.1 (self-hosted Inter and Space Grotesk). Any other licence fails `build/check-licenses.sh`.

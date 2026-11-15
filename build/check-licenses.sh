@@ -9,7 +9,8 @@ cd "$root"
 # CC-BY-4.0 is caniuse-lite, the browser-data set Tailwind and Angular's browserslist require.
 # It is free data with an attribution duty and no revenue cap, and it does not cover Shortlist.
 allow='MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Unlicense;PostgreSQL;MS-PL;BlueOak-1.0.0;MPL-2.0'
-npm_allow="${allow};CC-BY-4.0"
+# OFL-1.1 is Inter and Space Grotesk, self-hosted through @fontsource-variable.
+npm_allow="${allow};CC-BY-4.0;OFL-1.1"
 
 dotnet tool restore
 dotnet tool run nuget-license \
