@@ -14,6 +14,7 @@ export interface Session {
   permissions: string[];
   modules: ModuleFlag[];
   mfaRequired: boolean;
+  workspaceName?: string;
 }
 
 export const SessionStore = signalStore(

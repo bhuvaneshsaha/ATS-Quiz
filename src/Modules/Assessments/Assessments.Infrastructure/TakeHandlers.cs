@@ -80,6 +80,12 @@ internal static class InvitationMailer
 {
     public static async Task SendAsync(AssessmentsDbContext db, IEmailSender email, IClock clock, IConfiguration configuration, Invitation invitation, string candidateEmail, CancellationToken cancellationToken)
     {
+        var others = await db.Invitations.Where(item => item.ApplicationId == invitation.ApplicationId && item.Id != invitation.Id && (item.Status == InvitationStatus.Pending || item.Status == InvitationStatus.Sent)).ToListAsync(cancellationToken);
+        foreach (var other in others)
+        {
+            other.Cancel();
+        }
+
         var token = Secrets.NewToken();
         invitation.ReplaceToken(Secrets.Hash(token));
         await db.SaveChangesAsync(cancellationToken);
@@ -157,6 +163,27 @@ internal sealed class ListBindingsHandler(AssessmentsDbContext db) : IQueryHandl
     }
 }
 
+internal sealed class ResendInvitationHandler(AssessmentsDbContext db, IEmailSender email, IClock clock, IConfiguration configuration) : ICommandHandler<ResendInvitation, Result>
+{
+    public async Task<Result> Handle(ResendInvitation command, CancellationToken cancellationToken)
+    {
+        var invitation = await db.Invitations.SingleOrDefaultAsync(item => item.Id == command.InvitationId, cancellationToken);
+        if (invitation is null || invitation.Status is InvitationStatus.Submitted or InvitationStatus.Cancelled or InvitationStatus.Expired)
+        {
+            return Error.ConflictError("invitation.closed", "This invitation can no longer be resent.");
+        }
+
+        var attempt = await db.Attempts.SingleOrDefaultAsync(item => item.InvitationId == invitation.Id, cancellationToken);
+        if (attempt is not null)
+        {
+            return Error.ConflictError("invitation.started", "This candidate has already started.");
+        }
+
+        await InvitationMailer.SendAsync(db, email, clock, configuration, invitation, invitation.CandidateEmail, cancellationToken);
+        return Result.Ok();
+    }
+}
+
 internal sealed class ListInvitationsHandler(AssessmentsDbContext db) : IQueryHandler<ListInvitations, Result<IReadOnlyList<InvitationResponse>>>
 {
     public async Task<Result<IReadOnlyList<InvitationResponse>>> Handle(ListInvitations query, CancellationToken cancellationToken)
@@ -201,6 +228,13 @@ internal sealed class InviteOnStageChangedHandler(
         }
 
         var invitation = await db.Invitations.SingleOrDefaultAsync(item => item.SourceEventId == @event.EventId, cancellationToken);
+        var keepId = invitation?.Id ?? Guid.Empty;
+        var open = await db.Invitations.Where(item => item.ApplicationId == snapshot.Id && item.Id != keepId && (item.Status == InvitationStatus.Pending || item.Status == InvitationStatus.Sent)).ToListAsync(cancellationToken);
+        foreach (var item in open)
+        {
+            item.Cancel();
+        }
+
         var token = Secrets.NewToken();
         if (invitation is null)
         {
@@ -232,9 +266,20 @@ internal sealed class RequestCandidateCodeHandler(AssessmentsDbContext db, IEmai
     public async Task<Result> Handle(RequestCandidateCode command, CancellationToken cancellationToken)
     {
         var invitation = await Find(db, command.Token, cancellationToken);
-        if (invitation is null || invitation.Status is InvitationStatus.Cancelled or InvitationStatus.Expired || clock.UtcNow > invitation.ExpiresAt)
+        if (invitation is null || invitation.Status is InvitationStatus.Cancelled)
         {
             return Error.NotFoundError("invitation.not_found", "This invitation link is not valid.");
+        }
+
+        if (invitation.Status is InvitationStatus.Expired || clock.UtcNow > invitation.ExpiresAt)
+        {
+            if (invitation.Status is not InvitationStatus.Expired)
+            {
+                invitation.Expire();
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
+            return Error.Validation("invitation.expired", "This link has expired. Ask the recruiter for a new one.");
         }
 
         var code = Secrets.NewCode();
@@ -278,8 +323,9 @@ internal static class CandidateSessions
     {
         var version = await db.AssessmentVersions.Include(item => item.Sections).SingleAsync(item => item.Id == invitation.AssessmentVersionId, cancellationToken);
         var assessment = await db.Assessments.SingleAsync(item => item.Id == version.AssessmentId, cancellationToken);
-        var started = await db.Attempts.AnyAsync(item => item.InvitationId == invitation.Id, cancellationToken);
-        return new VerifiedCandidate(invitation.Id, invitation.WorkspaceId, invitation.CandidateEmail, assessment.Name, version.DesktopOnly, version.TotalMinutes, started);
+        var attempt = await db.Attempts.SingleOrDefaultAsync(item => item.InvitationId == invitation.Id, cancellationToken);
+        var enforced = (int)Math.Ceiling(version.TotalMinutes * (100d + invitation.ExtraTimePercent) / 100d);
+        return new VerifiedCandidate(invitation.Id, invitation.WorkspaceId, invitation.CandidateEmail, assessment.Name, version.DesktopOnly, version.TotalMinutes, invitation.ExtraTimePercent, enforced, attempt is not null, attempt is not null && attempt.Status != AttemptStatus.InProgress);
     }
 }
 
@@ -294,7 +340,7 @@ internal sealed class GetCandidateSessionHandler(AssessmentsDbContext db, ICurre
         }
 
         var described = await CandidateSessions.DescribeAsync(db, invitation, cancellationToken);
-        return new CandidateSessionResponse(described.InvitationId, described.AssessmentName, described.DesktopOnly, described.TotalMinutes, described.AttemptStarted);
+        return new CandidateSessionResponse(described.InvitationId, described.AssessmentName, described.DesktopOnly, described.TotalMinutes, described.ExtraTimePercent, described.EnforcedMinutes, described.AttemptStarted, described.AttemptFinished);
     }
 }
 
@@ -506,10 +552,27 @@ internal sealed class ListGradeQueueHandler(AssessmentsDbContext db) : IQueryHan
             orderby answer.SavedAt
             select new { answer, version }).ToListAsync(cancellationToken);
 
+        var attemptIds = rows.Select(row => row.answer.AttemptId).Distinct().ToList();
+        var attempts = await db.Attempts.Where(item => attemptIds.Contains(item.Id)).ToDictionaryAsync(item => item.Id, cancellationToken);
+        var invitationIds = attempts.Values.Select(item => item.InvitationId).Distinct().ToList();
+        var invitations = await db.Invitations.Where(item => invitationIds.Contains(item.Id)).ToDictionaryAsync(item => item.Id, cancellationToken);
+        var versionIds = invitations.Values.Select(item => item.AssessmentVersionId).Distinct().ToList();
+        var versions = await db.AssessmentVersions.Where(item => versionIds.Contains(item.Id)).ToDictionaryAsync(item => item.Id, item => item.AssessmentId, cancellationToken);
+        var assessmentIds = versions.Values.Distinct().ToList();
+        var names = await db.Assessments.Where(item => assessmentIds.Contains(item.Id)).ToDictionaryAsync(item => item.Id, item => item.Name, cancellationToken);
         return rows.Select(row =>
         {
             var rubric = row.version.Content is LongAnswerContent longAnswer ? longAnswer.Rubric : "";
-            return new GradeQueueItem(row.answer.Id, row.answer.AttemptId, row.version.Content.Prompt, rubric, row.version.Points, row.answer.ResponseJson);
+            var assessment = "";
+            if (attempts.TryGetValue(row.answer.AttemptId, out var attempt)
+                && invitations.TryGetValue(attempt.InvitationId, out var invitation)
+                && versions.TryGetValue(invitation.AssessmentVersionId, out var assessmentId)
+                && names.TryGetValue(assessmentId, out var found))
+            {
+                assessment = found;
+            }
+
+            return new GradeQueueItem(row.answer.Id, row.answer.AttemptId, assessment, row.version.Content.Prompt, rubric, row.version.Points, row.answer.ResponseJson);
         }).ToList();
     }
 }
@@ -688,21 +751,50 @@ public sealed class AttemptFinalizer(AssessmentsDbContext db, IClock clock)
         new(result.AttemptId, result.ApplicationId, result.Total, result.Max, result.Passed, result.Status.ToString(), result.SectionScoresJson);
 }
 
-internal sealed class ListResultsHandler(AssessmentsDbContext db, IApplicationReader applications) : IQueryHandler<ListResults, Result<IReadOnlyList<ResultListItem>>>
+internal sealed class ListResultsHandler(AssessmentsDbContext db, IApplicationReader applications, ICatalogueReader catalogue, IPdfRenderer pdf) : IQueryHandler<ListResults, Result<IReadOnlyList<ResultListItem>>>
 {
     public async Task<Result<IReadOnlyList<ResultListItem>>> Handle(ListResults query, CancellationToken cancellationToken)
     {
         var rows = await db.Results.OrderByDescending(item => item.CreatedAt).Take(100).ToListAsync(cancellationToken);
-        var names = (await applications.FindManyAsync(rows.Select(item => item.ApplicationId).Distinct().ToList(), cancellationToken))
-            .ToDictionary(item => item.Id, item => item.CandidateName);
-        return rows.Select(item => new ResultListItem(
-            item.AttemptId,
-            item.ApplicationId,
-            names.TryGetValue(item.ApplicationId, out var name) ? name : "Candidate",
-            item.Total,
-            item.Max,
-            item.Passed,
-            item.Status.ToString())).ToList();
+        var snapshots = await applications.FindManyAsync(rows.Select(item => item.ApplicationId).Distinct().ToList(), cancellationToken);
+        var names = snapshots.ToDictionary(item => item.Id, item => item);
+        var titles = await catalogue.OpeningTitlesAsync(snapshots.Select(item => item.OpeningId).Distinct().ToList(), cancellationToken);
+        var attemptIds = rows.Select(item => item.AttemptId).ToList();
+        var attempts = await db.Attempts.Where(item => attemptIds.Contains(item.Id)).ToDictionaryAsync(item => item.Id, cancellationToken);
+        var invitationIds = attempts.Values.Select(item => item.InvitationId).Distinct().ToList();
+        var invitations = await db.Invitations.Where(item => invitationIds.Contains(item.Id)).ToDictionaryAsync(item => item.Id, cancellationToken);
+        var versionIds = invitations.Values.Select(item => item.AssessmentVersionId).Distinct().ToList();
+        var versions = await db.AssessmentVersions.Where(item => versionIds.Contains(item.Id)).ToDictionaryAsync(item => item.Id, cancellationToken);
+        var assessmentIds = versions.Values.Select(item => item.AssessmentId).Distinct().ToList();
+        var assessmentNames = await db.Assessments.Where(item => assessmentIds.Contains(item.Id)).ToDictionaryAsync(item => item.Id, item => item.Name, cancellationToken);
+        return rows.Select(item =>
+        {
+            names.TryGetValue(item.ApplicationId, out var snapshot);
+            var openingId = snapshot?.OpeningId;
+            var opening = openingId is Guid id && titles.TryGetValue(id, out var title) ? title : "";
+            var assessment = "";
+            if (attempts.TryGetValue(item.AttemptId, out var attempt)
+                && invitations.TryGetValue(attempt.InvitationId, out var invitation)
+                && versions.TryGetValue(invitation.AssessmentVersionId, out var version)
+                && assessmentNames.TryGetValue(version.AssessmentId, out var found))
+            {
+                assessment = found;
+            }
+
+            return new ResultListItem(
+                item.AttemptId,
+                item.ApplicationId,
+                snapshot?.CandidateName ?? "Candidate",
+                openingId,
+                opening,
+                assessment,
+                item.Total,
+                item.Max,
+                item.Passed,
+                item.Status.ToString(),
+                item.SectionScoresJson,
+                pdf.ContentType == "application/pdf" ? "pdf" : "html");
+        }).ToList();
     }
 }
 

@@ -12,6 +12,7 @@ import { StatusPill } from '../../shared/components/status-pill';
 
 interface GradeItem {
   answerId: string;
+  assessmentName?: string;
   prompt: string;
   rubric: string;
   points: number;
@@ -33,7 +34,12 @@ interface GradeItem {
       @for (item of queue(); track item.answerId) {
         <app-card>
           <div class="flex flex-wrap items-center justify-between gap-3">
-            <h2>{{ item.prompt }}</h2>
+            <div>
+              @if (item.assessmentName) {
+                <p class="text-sm text-muted">{{ item.assessmentName }}</p>
+              }
+              <h2>{{ item.prompt }}</h2>
+            </div>
             <app-status-pill status="Needs grading" />
           </div>
           <p class="rounded-control bg-canvas px-4 py-3.5 whitespace-pre-wrap">{{ answer(item) }}</p>
@@ -44,9 +50,14 @@ interface GradeItem {
                 <input appControl class="w-24" name="score" type="number" min="0" [max]="item.points" step="0.5" required />
               </app-form-field>
               <app-form-field class="min-w-60 flex-1" label="Comment">
-                <input appControl name="comment" />
+                <textarea appControl name="comment" rows="3"></textarea>
               </app-form-field>
-              <button appButton i18n>Save score</button>
+              @if (confirming() === item.answerId) {
+                <p class="text-sm" role="status">Save this score? The card leaves the queue.</p>
+                <button appButton i18n>Confirm score</button>
+              } @else {
+                <button appButton type="button" (click)="confirming.set(item.answerId)" i18n>Save score</button>
+              }
             </div>
           </form>
         </app-card>
@@ -65,6 +76,7 @@ export class GradingPage {
   protected readonly queue = signal<GradeItem[]>([]);
   protected readonly error = signal<string | null>(null);
   protected readonly notice = signal<string | null>(null);
+  protected readonly confirming = signal<string | null>(null);
 
   constructor() {
     void this.reload();

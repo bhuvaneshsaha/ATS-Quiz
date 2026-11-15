@@ -53,6 +53,8 @@ public class HiringJourneyTests(ShortlistApi api)
         var questionId = question.GetProperty("id").GetGuid();
         await session.Post($"/api/assessments/v1/questions/{questionId}/submit", new { });
         var publishedQuestion = await session.Post($"/api/assessments/v1/questions/{questionId}/publish", new { });
+        var loaded = await session.Get($"/api/assessments/v1/questions/{questionId}");
+        loaded.GetProperty("functionName").GetString().ShouldBe($"Platform {suffix}");
         var versionId = publishedQuestion.GetProperty("currentVersionId").GetGuid();
 
         var assessment = await session.Post("/api/assessments/v1/assessments", new
@@ -243,6 +245,18 @@ public class HiringJourneyTests(ShortlistApi api)
 
         var invite = await WaitForEmail(session, email, "Open your assessment:");
         invite.ShouldContain("/take/");
+        var firstToken = invite.Split("/take/", StringSplitOptions.None)[1].Split('\n', StringSplitOptions.None)[0].Trim();
+        var before = await CountEmails(session, email, "Open your assessment:");
+        var screenId = opening.GetProperty("stages").EnumerateArray().First(stage => stage.GetProperty("type").GetString() != "Assessment").GetProperty("id").GetGuid();
+        var applicationId = application.GetProperty("id").GetGuid();
+        var openingId = opening.GetProperty("id").GetGuid();
+        await session.Post($"/api/core/v1/openings/{openingId}/applications/{applicationId}/stage", new { toStageId = screenId });
+        await session.Post($"/api/core/v1/openings/{openingId}/applications/{applicationId}/stage", new { toStageId = stageId });
+        var resent = await WaitForEmailCount(session, email, "Open your assessment:", before + 1);
+        var secondToken = resent.Split("/take/", StringSplitOptions.None)[1].Split('\n', StringSplitOptions.None)[0].Trim();
+        secondToken.ShouldNotBe(firstToken);
+        var rejected = await Should.ThrowAsync<InvalidOperationException>(() => session.Post($"/api/assessments/v1/take/{firstToken}/code", new { }));
+        rejected.Message.ShouldContain("not valid");
     }
 
     [Fact]
@@ -289,6 +303,29 @@ public class HiringJourneyTests(ShortlistApi api)
         recruiterId = (Guid?)null,
         externalId = (string?)null
     };
+
+    private static async Task<int> CountEmails(ApiSession session, string email, string fragment)
+    {
+        var mailbox = await session.Get("/api/identity/v1/dev/emails");
+        return mailbox.EnumerateArray().Count(message => message.GetProperty("to").GetString() == email && message.GetProperty("textBody").GetString() is string body && body.Contains(fragment, StringComparison.Ordinal));
+    }
+
+    private static async Task<string> WaitForEmailCount(ApiSession session, string email, string fragment, int count)
+    {
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            var mailbox = await session.Get("/api/identity/v1/dev/emails");
+            var matches = mailbox.EnumerateArray().Where(message => message.GetProperty("to").GetString() == email && message.GetProperty("textBody").GetString() is string body && body.Contains(fragment, StringComparison.Ordinal)).Select(message => message.GetProperty("textBody").GetString()!).ToList();
+            if (matches.Count >= count)
+            {
+                return matches[^1];
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(250));
+        }
+
+        throw new InvalidOperationException($"Expected {count} emails for {email}.");
+    }
 
     private static async Task<string> WaitForEmail(ApiSession session, string email, string fragment)
     {

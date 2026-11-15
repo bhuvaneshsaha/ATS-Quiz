@@ -1,7 +1,8 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { email, form, FormField as BoundField, required } from '@angular/forms/signals';
 import { Api, problemMessage } from '../../core/api';
 import { Button } from '../../shared/ui/button';
+import { Combobox, ComboOption } from '../../shared/ui/combobox';
 import { FieldControl } from '../../shared/ui/field';
 import { Card } from '../../shared/components/card';
 import { DataColumn, DataTable } from '../../shared/components/data-table';
@@ -26,7 +27,7 @@ interface RoleRow {
 
 @Component({
   selector: 'app-people',
-  imports: [BoundField, Button, FieldControl, Card, DataTable, FormField, PageHeader],
+  imports: [BoundField, Button, Combobox, FieldControl, Card, DataTable, FormField, PageHeader],
   template: `
     <section class="page">
       <app-page-header>
@@ -59,8 +60,15 @@ interface RoleRow {
             <app-form-field label="Email" [required]="true">
               <input appControl type="email" [formField]="draft.email" />
             </app-form-field>
-            <app-form-field label="Temporary password" [required]="true">
-              <input appControl type="password" [formField]="draft.password" />
+            <app-form-field label="Temporary password" [required]="true" [error]="passwordError()" errorId="password-error">
+              <input
+                id="people-password"
+                appControl
+                type="password"
+                [formField]="draft.password"
+                [attr.aria-invalid]="passwordError() ? true : null"
+                [attr.aria-describedby]="passwordError() ? 'password-error' : null"
+              />
             </app-form-field>
             <button appButton i18n>Create account</button>
           </form>
@@ -69,20 +77,22 @@ interface RoleRow {
           <h2 i18n>Assign a role</h2>
           <form class="flex flex-col gap-3" (submit)="assign($event)">
             <app-form-field label="Person" [required]="true">
-              <select appControl name="userId" required>
-                <option value="" i18n>Select</option>
-                @for (user of users(); track user.id) {
-                  <option [value]="user.id">{{ user.displayName }}</option>
-                }
-              </select>
+              <app-combobox
+                name="userId"
+                [options]="userOptions()"
+                [value]="userId()"
+                placeholder="Type a name"
+                (valueChange)="userId.set($event)"
+              />
             </app-form-field>
             <app-form-field label="Role" [required]="true">
-              <select appControl name="roleId" required>
-                <option value="" i18n>Select</option>
-                @for (role of roles(); track role.id) {
-                  <option [value]="role.id">{{ role.name }}</option>
-                }
-              </select>
+              <app-combobox
+                name="roleId"
+                [options]="roleOptions()"
+                [value]="roleId()"
+                placeholder="Type a role"
+                (valueChange)="roleId.set($event)"
+              />
             </app-form-field>
             <button appButton variant="secondary" i18n>Assign role</button>
           </form>
@@ -103,6 +113,15 @@ export class PeoplePage {
   protected readonly roles = signal<RoleRow[]>([]);
   protected readonly error = signal<string | null>(null);
   protected readonly notice = signal<string | null>(null);
+  protected readonly passwordError = signal<string | null>(null);
+  protected readonly userId = signal('');
+  protected readonly roleId = signal('');
+  protected readonly userOptions = computed<ComboOption[]>(() =>
+    this.users().map((user) => ({ value: user.id, label: user.displayName, hint: user.email })),
+  );
+  protected readonly roleOptions = computed<ComboOption[]>(() =>
+    this.roles().map((role) => ({ value: role.id, label: role.name })),
+  );
   protected readonly model = signal({ displayName: '', email: '', password: '' });
   protected readonly userColumns: DataColumn<UserRow>[] = [
     {
@@ -143,8 +162,14 @@ export class PeoplePage {
     event.preventDefault();
     this.error.set(null);
     this.notice.set(null);
-    if (this.draft().invalid() || this.model().password.length < 12) {
-      this.error.set('Enter a name, a valid email, and a password of at least 12 characters with upper and lower case, a number, and a symbol.');
+    this.passwordError.set(null);
+    if (this.model().password.length < 12) {
+      this.passwordError.set('Use at least 12 characters with upper and lower case, a number, and a symbol.');
+      queueMicrotask(() => document.getElementById('people-password')?.focus());
+      return;
+    }
+    if (this.draft().invalid()) {
+      this.error.set('Enter a name and a valid email.');
       return;
     }
     try {
@@ -159,9 +184,8 @@ export class PeoplePage {
 
   protected async assign(event: Event): Promise<void> {
     event.preventDefault();
-    const data = new FormData(event.target as HTMLFormElement);
-    const userId = data.get('userId')?.toString();
-    const roleId = data.get('roleId')?.toString();
+    const userId = this.userId();
+    const roleId = this.roleId();
     this.error.set(null);
     this.notice.set(null);
     if (!userId || !roleId) {
@@ -175,7 +199,8 @@ export class PeoplePage {
         { userId, scope: 'All', hiringUnitIds: [], functionIds: [] },
         true,
       );
-      (event.target as HTMLFormElement).reset();
+      this.userId.set('');
+      this.roleId.set('');
       this.notice.set('Role assigned.');
       await this.reload();
     } catch (error) {

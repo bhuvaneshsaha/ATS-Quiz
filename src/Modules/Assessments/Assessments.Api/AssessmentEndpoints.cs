@@ -51,6 +51,9 @@ public static class AssessmentEndpoints
         api.MapGet("/v1/invitations", async (Guid? applicationId, IDispatcher dispatcher, CancellationToken ct) =>
             (await dispatcher.Query(new ListInvitations(applicationId), ct)).ToHttpResult())
             .RequireAuthorization().RequirePermission(AssessmentPermissions.InvitationsView);
+        api.MapPost("/v1/invitations/{id:guid}/resend", async (Guid id, IDispatcher dispatcher, CancellationToken ct) =>
+            (await dispatcher.Send(new ResendInvitation(id), ct)).ToHttpResult())
+            .RequireAuthorization().RequirePermission(AssessmentPermissions.BindingsManage);
 
         var grading = api.MapGroup("/v1/grading").WithTags("Grading").RequireAuthorization();
         grading.MapGet("/queue", async (IDispatcher dispatcher, CancellationToken ct) =>
@@ -95,7 +98,7 @@ public static class AssessmentEndpoints
                 new Claim(ClaimTypes.Email, result.Value.Email)
             };
             await http.SignInAsync("Candidate", new ClaimsPrincipal(new ClaimsIdentity(claims, "Candidate")));
-            return Results.Ok(new CandidateSessionResponse(result.Value.InvitationId, result.Value.AssessmentName, result.Value.DesktopOnly, result.Value.TotalMinutes, result.Value.AttemptStarted));
+            return Results.Ok(new CandidateSessionResponse(result.Value.InvitationId, result.Value.AssessmentName, result.Value.DesktopOnly, result.Value.TotalMinutes, result.Value.ExtraTimePercent, result.Value.EnforcedMinutes, result.Value.AttemptStarted, result.Value.AttemptFinished));
         }).AllowAnonymous().DisableAntiforgery().RequireRateLimiting("candidate-auth");
         take.MapGet("/session", async (IDispatcher dispatcher, CancellationToken ct) =>
             (await dispatcher.Query(new GetCandidateSession(), ct)).ToHttpResult()).RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = "Candidate" });

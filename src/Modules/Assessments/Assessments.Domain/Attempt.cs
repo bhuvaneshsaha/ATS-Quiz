@@ -127,6 +127,14 @@ public sealed class Invitation : Entity, IAudited
 
     public void MarkSubmitted() => Status = InvitationStatus.Submitted;
 
+    public void Cancel()
+    {
+        if (Status is InvitationStatus.Pending or InvitationStatus.Sent)
+        {
+            Status = InvitationStatus.Cancelled;
+        }
+    }
+
     public void Expire() => Status = InvitationStatus.Expired;
 }
 

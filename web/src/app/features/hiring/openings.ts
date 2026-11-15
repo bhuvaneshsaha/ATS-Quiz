@@ -7,6 +7,7 @@ import { rxMethod } from '@ngrx/signals/rxjs-interop';
 import { tapResponse } from '@ngrx/operators';
 import { debounceTime, from, pipe, switchMap, tap } from 'rxjs';
 import { Api, problemMessage } from '../../core/api';
+import { SessionStore } from '../../core/session';
 import { en } from '../../../locale/en';
 import { Card } from '../../shared/components/card';
 import { DataColumn, DataTable } from '../../shared/components/data-table';
@@ -14,6 +15,7 @@ import { FilterChips } from '../../shared/components/filter-chips';
 import { FormField } from '../../shared/components/form-field';
 import { PageHeader } from '../../shared/components/page-header';
 import { Button } from '../../shared/ui/button';
+import { Combobox, ComboOption } from '../../shared/ui/combobox';
 import { FieldControl } from '../../shared/ui/field';
 
 export interface OpeningSummary {
@@ -82,7 +84,7 @@ export const OpeningsStore = signalStore(
 
 @Component({
   selector: 'app-openings',
-  imports: [BoundField, Card, DataTable, FilterChips, FormField, PageHeader, Button, FieldControl],
+  imports: [BoundField, Card, DataTable, FilterChips, FormField, PageHeader, Button, Combobox, FieldControl],
   providers: [OpeningsStore],
   template: `
     <section class="page">
@@ -114,21 +116,23 @@ export const OpeningsStore = signalStore(
           <app-card>
             <h2 i18n>Who is it for?</h2>
             <div class="grid gap-3 md:grid-cols-2">
-              <app-form-field label="Hiring unit" [required]="true">
-                <select appControl [formField]="draft.hiringUnitId">
-                  <option value="">Select</option>
-                  @for (unit of units(); track unit.id) {
-                    <option [value]="unit.id">{{ unit.name }}</option>
-                  }
-                </select>
+              <app-form-field label="Hiring unit" [required]="true" [error]="unitError()">
+                <app-combobox
+                  name="hiringUnitId"
+                  [options]="unitOptions()"
+                  [value]="model().hiringUnitId"
+                  placeholder="Type a hiring unit"
+                  (valueChange)="setChoice('hiringUnitId', $event)"
+                />
               </app-form-field>
-              <app-form-field label="Function" [required]="true">
-                <select appControl [formField]="draft.functionId">
-                  <option value="">Select</option>
-                  @for (item of functions(); track item.id) {
-                    <option [value]="item.id">{{ item.name }}</option>
-                  }
-                </select>
+              <app-form-field label="Function" [required]="true" [error]="functionError()">
+                <app-combobox
+                  name="functionId"
+                  [options]="functionOptions()"
+                  [value]="model().functionId"
+                  placeholder="Type a function"
+                  (valueChange)="setChoice('functionId', $event)"
+                />
               </app-form-field>
             </div>
             <p class="text-sm text-muted" i18n>
@@ -166,7 +170,9 @@ export const OpeningsStore = signalStore(
         <app-page-header>
           <ng-container pageTitle i18n>Openings</ng-container>
           <ng-container pageSubtitle>{{ subtitle() }}</ng-container>
-          <button appButton type="button" (click)="creating.set(true)" i18n>New opening</button>
+          @if (canManage()) {
+            <button appButton type="button" (click)="creating.set(true)" i18n>New opening</button>
+          }
         </app-page-header>
 
         <app-filter-chips
@@ -183,46 +189,40 @@ export const OpeningsStore = signalStore(
               [value]="store.filter().search"
               (input)="store.setFilter({ search: $any($event.target).value })"
               i18n-placeholder
-              placeholder="Title, opening ID or location"
+              placeholder="Title or opening ID"
             />
           </app-form-field>
           <app-form-field class="min-w-44 flex-1" label="Hiring unit">
-            <select
-              appControl
+            <app-combobox
+              [options]="unitOptions()"
               [value]="store.filter().hiringUnitId"
-              (change)="store.setFilter({ hiringUnitId: $any($event.target).value })"
-            >
-              <option value="" i18n>All units</option>
-              @for (unit of units(); track unit.id) {
-                <option [value]="unit.id">{{ unit.name }}</option>
-              }
-            </select>
+              placeholder="All units"
+              (valueChange)="store.setFilter({ hiringUnitId: $event })"
+            />
           </app-form-field>
           <app-form-field class="min-w-44 flex-1" label="Function">
-            <select
-              appControl
+            <app-combobox
+              [options]="functionOptions()"
               [value]="store.filter().functionId"
-              (change)="store.setFilter({ functionId: $any($event.target).value })"
-            >
-              <option value="" i18n>All functions</option>
-              @for (item of functions(); track item.id) {
-                <option [value]="item.id">{{ item.name }}</option>
-              }
-            </select>
+              placeholder="All functions"
+              (valueChange)="store.setFilter({ functionId: $event })"
+            />
           </app-form-field>
         </div>
 
-        @if (store.error(); as message) {
+        @if (store.status() === 'pending' && store.entities().length === 0) {
+          <p class="text-sm text-muted" role="status">Loading openings.</p>
+        } @else if (store.error(); as message) {
           <p class="text-sm text-danger" role="alert">{{ message }}</p>
+        } @else {
+          <app-data-table
+            [columns]="columns"
+            [rows]="visible()"
+            [track]="track"
+            [empty]="emptyMessage()"
+            note="Applications is the number of people on the opening. Filled positions are counted on the opening itself."
+          />
         }
-
-        <app-data-table
-          [columns]="columns"
-          [rows]="visible()"
-          [track]="track"
-          [empty]="copy.emptyOpenings"
-          note="Applications is the number of people on the opening. Filled positions are counted on the opening itself."
-        />
       }
     </section>
   `,
@@ -231,10 +231,19 @@ export class OpeningsPage {
   protected readonly store = inject(OpeningsStore);
   protected readonly copy = en;
   private readonly api = inject(Api);
+  private readonly session = inject(SessionStore);
   protected readonly units = signal<{ id: string; name: string; type: string }[]>([]);
   protected readonly functions = signal<{ id: string; name: string }[]>([]);
   protected readonly creating = signal(false);
   protected readonly formError = signal<string | null>(null);
+  protected readonly unitError = signal<string | null>(null);
+  protected readonly functionError = signal<string | null>(null);
+  protected readonly unitOptions = computed<ComboOption[]>(() =>
+    this.units().map((unit) => ({ value: unit.id, label: unit.name, hint: unit.type })),
+  );
+  protected readonly functionOptions = computed<ComboOption[]>(() =>
+    this.functions().map((item) => ({ value: item.id, label: item.name })),
+  );
   protected readonly model = signal({
     title: '',
     positions: 1,
@@ -279,6 +288,11 @@ export class OpeningsPage {
       { value: 'OnHold', label: 'On hold', count: count('OnHold') },
     ];
   });
+  protected readonly emptyMessage = computed(() => {
+    const filter = this.store.filter();
+    const narrowed = filter.status || filter.search.trim() || filter.hiringUnitId || filter.functionId;
+    return narrowed ? this.copy.emptyOpenings : 'No openings yet.';
+  });
   protected readonly subtitle = computed(() => {
     const rows = this.store.entities();
     const open = rows.filter((row) => row.status === 'Open' || row.status === 'Draft').length;
@@ -312,13 +326,29 @@ export class OpeningsPage {
     return this.units().find((unit) => unit.id === id)?.type ?? null;
   }
 
+  protected canManage(): boolean {
+    return this.session.can('Core.Openings.Manage');
+  }
+
+  protected setChoice(field: 'hiringUnitId' | 'functionId', value: string): void {
+    this.model.update((current) => ({ ...current, [field]: value }));
+  }
+
   private async loadChoices(): Promise<void> {
-    const [units, functions] = await Promise.all([
+    const [units, functions] = await Promise.allSettled([
       this.api.get<{ id: string; name: string; type: string }[]>('/api/core/v1/hiring-units'),
       this.api.get<{ id: string; name: string }[]>('/api/core/v1/functions'),
     ]);
-    this.units.set(units);
-    this.functions.set(functions);
+    if (units.status === 'fulfilled') {
+      this.units.set(units.value);
+    } else {
+      this.unitError.set(problemMessage(units.reason));
+    }
+    if (functions.status === 'fulfilled') {
+      this.functions.set(functions.value);
+    } else {
+      this.functionError.set(problemMessage(functions.reason));
+    }
   }
 
   protected cancelCreate(event: Event): void {

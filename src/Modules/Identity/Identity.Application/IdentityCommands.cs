@@ -21,7 +21,8 @@ public sealed record SessionResponse(
     string? DisplayName,
     IReadOnlyList<string> Permissions,
     IReadOnlyList<ModuleFlag> Modules,
-    bool MfaRequired);
+    bool MfaRequired,
+    string WorkspaceName);
 
 public sealed record ModuleFlag(string Name, bool Enabled);
 

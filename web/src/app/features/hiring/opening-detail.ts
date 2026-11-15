@@ -1,8 +1,10 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Api, problemMessage } from '../../core/api';
+import { SessionStore } from '../../core/session';
 import { en } from '../../../locale/en';
 import { Button } from '../../shared/ui/button';
+import { Combobox, ComboOption } from '../../shared/ui/combobox';
 import { FieldControl } from '../../shared/ui/field';
 import { Card } from '../../shared/components/card';
 import { FormField } from '../../shared/components/form-field';
@@ -59,9 +61,16 @@ interface BindingRow {
   passMarkOverride: number | null;
 }
 
+interface InviteRow {
+  id: string;
+  applicationId: string;
+  status: string;
+  expiresAt: string;
+}
+
 @Component({
   selector: 'app-opening-detail',
-  imports: [RouterLink, Button, FieldControl, Card, FormField, PageHeader, ProgressBar, StatusPill],
+  imports: [RouterLink, Button, Combobox, FieldControl, Card, FormField, PageHeader, ProgressBar, StatusPill],
   template: `
     <section class="page">
       @if (opening(); as item) {
@@ -70,7 +79,7 @@ interface BindingRow {
           <ng-container pageTitle>{{ item.title }}</ng-container>
           <app-status-pill pageMeta [status]="item.status" />
           <ng-container pageSubtitle>{{ summary(item) }}</ng-container>
-          @if (item.status === 'Open' || item.status === 'OnHold') {
+          @if (canManageOpening() && (item.status === 'Open' || item.status === 'OnHold')) {
             <button
               appButton
               variant="secondary"
@@ -81,21 +90,21 @@ interface BindingRow {
               Close opening
             </button>
           }
-          @if (item.status === 'Open') {
+          @if (canManageOpening() && item.status === 'Open') {
             <button appButton variant="secondary" type="button" (click)="setStatus('OnHold')" i18n>
               Put on hold
             </button>
           }
-          @if (item.status === 'Draft') {
+          @if (canManageOpening() && item.status === 'Draft') {
             <button appButton type="button" (click)="setStatus('Open')" i18n>
               Open for hiring
             </button>
           }
-          @if (item.status === 'OnHold') {
+          @if (canManageOpening() && item.status === 'OnHold') {
             <button appButton type="button" (click)="setStatus('Open')" i18n>Reopen</button>
           }
-          @if (item.status === 'Open') {
-            <a appButton routerLink="/candidates" i18n>Invite candidates</a>
+          @if (canAddCandidate() && item.status === 'Open') {
+            <a appButton routerLink="/candidates" i18n>Add candidates</a>
           }
         </app-page-header>
 
@@ -115,6 +124,7 @@ interface BindingRow {
                     class="md:flex-1"
                     size="bar"
                     track="soft"
+                    [label]="stage.name + ': ' + count(stage.id) + ' candidates'"
                     [value]="count(stage.id)"
                     [max]="item.applications.length || 1"
                   />
@@ -139,18 +149,26 @@ interface BindingRow {
                     <p class="text-xs font-semibold tracking-label text-muted uppercase" i18n>Score</p>
                     <p class="font-semibold tabular-nums">{{ scoreLabel(application) }}</p>
                     @if (application.attemptId) {
-                      <a class="text-sm" [href]="'/api/assessments/v1/results/' + application.attemptId + '/report'" i18n>PDF report</a>
+                      <a class="text-sm" [href]="'/api/assessments/v1/results/' + application.attemptId + '/report'" i18n>Score summary</a>
+                    }
+                    @if (inviteFor(application.id); as invite) {
+                      <p class="text-sm text-ink-soft">Invite {{ invite.status }} · expires {{ invite.expiresAt }}</p>
+                      @if (canBind() && (invite.status === 'Pending' || invite.status === 'Sent')) {
+                        <button appButton variant="secondary" type="button" (click)="resend(invite.id)">Resend</button>
+                      }
                     }
                   </div>
                   <app-status-pill [status]="application.stageName" />
-                  <app-form-field label="Move to">
-                    <select appControl (change)="move(application.id, $any($event.target))">
-                      <option value="">Select a stage</option>
-                      @for (stage of item.stages; track stage.id) {
-                        <option [value]="stage.id">{{ stage.name }}</option>
-                      }
-                    </select>
-                  </app-form-field>
+                  @if (canMove()) {
+                    <app-form-field label="Move to">
+                      <app-combobox
+                        [options]="stageOptions(item)"
+                        value=""
+                        placeholder="Select a stage"
+                        (valueChange)="move(application.id, $event)"
+                      />
+                    </app-form-field>
+                  }
                 </article>
               } @empty {
                 <p class="px-5 py-6 text-muted" i18n>
@@ -198,31 +216,35 @@ interface BindingRow {
               } @else {
                 <p class="text-sm text-muted" i18n>No test is pinned to the assessment stage yet.</p>
               }
-              <form class="flex flex-col gap-3" (submit)="bind($event)">
-                <app-form-field label="Published assessment" [required]="true">
-                  <select appControl name="version" required>
-                    <option value="" i18n>Select</option>
-                    @for (assessment of assessments(); track assessment.id) {
-                      @if (assessment.current?.isPublished) {
-                        <option [value]="assessment.current?.id">{{ assessment.name }}</option>
-                      }
-                    }
-                  </select>
-                </app-form-field>
-                <app-form-field label="Valid for days">
-                  <input appControl name="validDays" type="number" min="1" value="7" />
-                </app-form-field>
-                <app-form-field label="Extra time %">
-                  <input appControl name="extraTime" type="number" min="0" value="0" />
-                </app-form-field>
-                <app-form-field label="Pass mark override %">
-                  <input appControl name="passMark" type="number" min="0" max="100" />
-                </app-form-field>
-                <button appButton variant="secondary">{{ pinned() ? 'Replace test' : 'Attach test' }}</button>
-              </form>
-              <p class="text-sm text-muted" i18n>
-                Replacing the test keeps one version on this stage. People already here, who have not started, are invited.
-              </p>
+              @if (canBind()) {
+                <form class="flex flex-col gap-3" (submit)="bind($event)">
+                  <app-form-field label="Published assessment" [required]="true" [error]="assessmentError()">
+                    <app-combobox
+                      name="version"
+                      [options]="assessmentOptions()"
+                      [value]="versionId()"
+                      placeholder="Type an assessment"
+                      (valueChange)="versionId.set($event)"
+                    />
+                  </app-form-field>
+                  <app-form-field label="Valid for days">
+                    <input appControl name="validDays" type="number" min="1" [value]="validDays()" (input)="validDays.set(num($any($event.target).value))" />
+                  </app-form-field>
+                  <app-form-field label="Extra time %">
+                    <input appControl name="extraTime" type="number" min="0" [value]="extraTime()" (input)="extraTime.set(num($any($event.target).value))" />
+                  </app-form-field>
+                  <app-form-field label="Pass mark override %">
+                    <input appControl name="passMark" type="number" min="0" max="100" [value]="passMark()" (input)="passMark.set($any($event.target).value)" />
+                  </app-form-field>
+                  @if (replaces()) {
+                    <p class="text-sm text-ink-soft" role="status">This replaces the current test.</p>
+                  }
+                  <button appButton variant="secondary">{{ pinned() ? 'Replace test' : 'Attach test' }}</button>
+                </form>
+                <p class="text-sm text-muted" i18n>
+                  Replacing the test keeps one version on this stage. People already here, who have not started, are invited.
+                </p>
+              }
             </app-card>
           </div>
         </div>
@@ -239,11 +261,32 @@ interface BindingRow {
 export class OpeningDetailPage {
   private readonly api = inject(Api);
   private readonly route = inject(ActivatedRoute);
+  private readonly session = inject(SessionStore);
   protected readonly opening = signal<OpeningDetails | null>(null);
   protected readonly assessments = signal<AssessmentRow[]>([]);
   protected readonly pinned = signal<BindingRow | null>(null);
+  protected readonly invites = signal<InviteRow[]>([]);
+  protected readonly versionId = signal('');
+  protected readonly validDays = signal(7);
+  protected readonly extraTime = signal(0);
+  protected readonly passMark = signal('');
   protected readonly notice = signal<string | null>(null);
   protected readonly error = signal<string | null>(null);
+  protected readonly assessmentError = signal<string | null>(null);
+  protected readonly assessmentOptions = computed<ComboOption[]>(() =>
+    this.assessments()
+      .filter((assessment) => assessment.current?.isPublished)
+      .map((assessment) => ({ value: assessment.current?.id ?? '', label: assessment.name })),
+  );
+  protected readonly replaces = computed(() => {
+    const current = this.pinned();
+    if (!current) return false;
+    return (
+      this.versionId() !== current.assessmentVersionId ||
+      this.validDays() !== current.validDays ||
+      this.extraTime() !== current.extraTimePercent
+    );
+  });
   protected readonly copy = en;
   protected readonly counts = computed(() => {
     const counts = new Map<string, number>();
@@ -255,10 +298,40 @@ export class OpeningDetailPage {
 
   constructor() {
     void this.reload();
-    void this.api
-      .get<AssessmentRow[]>('/api/assessments/v1/assessments')
-      .then((rows) => this.assessments.set(rows))
-      .catch((error) => this.error.set(problemMessage(error)));
+    if (this.canBind()) {
+      void this.api
+        .get<AssessmentRow[]>('/api/assessments/v1/assessments')
+        .then((rows) => this.assessments.set(rows))
+        .catch((error) => this.assessmentError.set(problemMessage(error)));
+    }
+  }
+
+  protected canManageOpening(): boolean {
+    return this.session.can('Core.Openings.Manage');
+  }
+
+  protected canAddCandidate(): boolean {
+    return this.session.can('Core.Candidates.Manage');
+  }
+
+  protected canMove(): boolean {
+    return this.session.can('Core.Applications.MoveStage');
+  }
+
+  protected canBind(): boolean {
+    return this.session.can('Assessments.Bindings.Manage');
+  }
+
+  protected num(value: string): number {
+    return Number(value);
+  }
+
+  protected stageOptions(item: OpeningDetails): ComboOption[] {
+    return item.stages.map((stage) => ({ value: stage.id, label: stage.name, hint: stage.type }));
+  }
+
+  protected inviteFor(applicationId: string): InviteRow | null {
+    return this.invites().find((invite) => invite.applicationId === applicationId) ?? null;
   }
 
   protected scoreLabel(application: ApplicationRow): string {
@@ -279,14 +352,28 @@ export class OpeningDetailPage {
     const id = this.route.snapshot.paramMap.get('id');
     const opening = await this.api.get<OpeningDetails>(`/api/core/v1/openings/${id}`);
     this.opening.set(opening);
+    if (this.session.can('Assessments.Invitations.View')) {
+      try {
+        this.invites.set(await this.api.get<InviteRow[]>('/api/assessments/v1/invitations'));
+      } catch {
+        this.invites.set([]);
+      }
+    }
     const stage = opening.stages.find((item) => item.type === 'Assessment');
-    if (!stage) {
+    if (!stage || !this.canBind()) {
       this.pinned.set(null);
       return;
     }
     try {
       const bindings = await this.api.get<BindingRow[]>(`/api/assessments/v1/bindings?openingStageId=${stage.id}`);
-      this.pinned.set(bindings[0] ?? null);
+      const current = bindings[0] ?? null;
+      this.pinned.set(current);
+      if (current) {
+        this.versionId.set(current.assessmentVersionId);
+        this.validDays.set(current.validDays);
+        this.extraTime.set(current.extraTimePercent);
+        this.passMark.set(current.passMarkOverride === null || current.passMarkOverride === undefined ? '' : String(current.passMarkOverride));
+      }
     } catch {
       this.pinned.set(null);
     }
@@ -324,8 +411,19 @@ export class OpeningDetailPage {
     }
   }
 
-  protected async move(applicationId: string, select: HTMLSelectElement): Promise<void> {
-    const stageId = select.value;
+  protected async resend(invitationId: string): Promise<void> {
+    this.error.set(null);
+    this.notice.set(null);
+    try {
+      await this.api.send('POST', `/api/assessments/v1/invitations/${invitationId}/resend`, {});
+      this.notice.set('Invite sent again. The previous link no longer works.');
+      await this.reload();
+    } catch (error) {
+      this.error.set(problemMessage(error));
+    }
+  }
+
+  protected async move(applicationId: string, stageId: string): Promise<void> {
     if (!stageId) {
       return;
     }
@@ -339,23 +437,19 @@ export class OpeningDetailPage {
         { toStageId: stageId },
       );
       this.notice.set(en.inviteQueued);
-      select.value = '';
       await this.reload();
     } catch (error) {
       this.notice.set(null);
       this.error.set(problemMessage(error));
-      select.value = '';
     }
   }
 
   protected async bind(event: Event): Promise<void> {
     event.preventDefault();
     this.error.set(null);
-    const form = event.target as HTMLFormElement;
-    const data = new FormData(form);
-    const version = data.get('version')?.toString();
+    const version = this.versionId();
     const stage = this.opening()?.stages.find((item) => item.type === 'Assessment');
-    const passMark = data.get('passMark')?.toString();
+    const passMark = this.passMark();
     if (!version || !stage) {
       this.error.set('Publish an assessment and keep the assessment stage.');
       return;
@@ -370,8 +464,8 @@ export class OpeningDetailPage {
           openingStageId: stage.id,
           assessmentVersionId: version,
           passMarkOverride: passMark ? Number(passMark) : null,
-          validDays: Number(data.get('validDays') || 7),
-          extraTimePercent: Number(data.get('extraTime') || 0),
+          validDays: Number(this.validDays() || 7),
+          extraTimePercent: Number(this.extraTime() || 0),
         },
         true,
       );

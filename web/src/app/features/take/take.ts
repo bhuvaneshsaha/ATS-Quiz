@@ -45,7 +45,10 @@ interface Preview {
   assessmentName: string;
   desktopOnly: boolean;
   totalMinutes: number;
+  extraTimePercent: number;
+  enforcedMinutes: number;
   attemptStarted: boolean;
+  attemptFinished: boolean;
 }
 interface FlatQuestion extends Presented {
   sectionId: string;
@@ -75,7 +78,7 @@ interface FlatQuestion extends Presented {
         }
       </header>
       @if (step() === 'player') {
-        <app-progress-bar size="line" [value]="answeredCount()" [max]="flat().length || 1" />
+        <app-progress-bar size="line" [label]="'Answered ' + answeredCount() + ' of ' + flat().length" [value]="answeredCount()" [max]="flat().length || 1" />
       }
 
       <div class="take-wrap flex flex-1 flex-col gap-5">
@@ -106,13 +109,11 @@ interface FlatQuestion extends Presented {
             <h1 class="text-3xl" i18n>Before you start</h1>
             <app-card>
               <h2 class="font-display text-xl">{{ preview()?.assessmentName || 'System check' }}</h2>
-              <p class="text-ink-soft">{{ preview()?.totalMinutes }} minutes, kept by the server.</p>
+              <p class="text-ink-soft">{{ durationText() }}</p>
               @if (blockedDesktop()) {
-                <p class="text-ink-soft" i18n>This assessment has to be started on a wider screen.</p>
-              } @else if (narrow()) {
+                <p class="text-ink-soft" i18n>This assessment has to be started on a screen at least 1024 pixels wide.</p>
+              } @else if (phone()) {
                 <p class="text-ink-soft" i18n>This test is comfortable on a phone. The question list opens from a button at the bottom.</p>
-              } @else {
-                <p class="text-ink-soft" i18n>Your screen is wide enough. The timer is kept by the server.</p>
               }
               @if (!blockedDesktop()) {
                 <button appButton class="self-start" type="button" (click)="start()" i18n>Start assessment</button>
@@ -234,6 +235,13 @@ interface FlatQuestion extends Presented {
             <p class="max-w-xl text-ink-soft">
               {{ timedOut() ? 'Your saved answers were submitted.' : 'Your answers were submitted. You can close this page.' }}
             </p>
+            @if (paper()?.attemptId) {
+              <p class="text-sm text-muted">Reference {{ paper()?.attemptId }}</p>
+            }
+          }
+          @case ('already') {
+            <h1 class="text-3xl" i18n>You already submitted this assessment.</h1>
+            <p class="max-w-xl text-ink-soft" i18n>Ask the recruiter if you need another attempt.</p>
           }
         }
         @if (error()) {
@@ -261,13 +269,14 @@ export class TakePage {
   private readonly api = inject(Api);
   private readonly http = inject(HttpClient);
   private readonly route = inject(ActivatedRoute);
-  protected readonly step = signal<'welcome' | 'code' | 'check' | 'player' | 'done'>('welcome');
+  protected readonly step = signal<'welcome' | 'code' | 'check' | 'player' | 'done' | 'already'>('welcome');
   protected readonly error = signal<string | null>(null);
   protected readonly paper = signal<Paper | null>(null);
   protected readonly preview = signal<Preview | null>(null);
   protected readonly cursor = signal(0);
   protected readonly saveState = signal('Answers are saved when the server confirms.');
-  protected readonly narrow = signal(window.matchMedia('(max-width: 767px)').matches);
+  protected readonly phone = signal(window.matchMedia('(max-width: 767px)').matches);
+  protected readonly compact = signal(window.matchMedia('(max-width: 1023px)').matches);
   protected readonly answers = signal<Record<string, AnswerValue>>({});
   protected readonly flags = signal<ReadonlySet<string>>(new Set());
   protected readonly timedOut = signal(false);
@@ -295,21 +304,41 @@ export class TakePage {
     const question = this.current();
     return this.paper()?.sections.find((section) => section.sectionId === question?.sectionId)?.name ?? '';
   });
-  protected readonly blockedDesktop = computed(() => !!this.preview()?.desktopOnly && this.narrow() && !this.preview()?.attemptStarted);
-  protected readonly submitBody = computed(
-    () => `${this.answeredCount()} of ${this.flat().length} answered. You cannot change answers after submitting.`,
+  protected readonly blockedDesktop = computed(
+    () => !!this.preview()?.desktopOnly && this.compact() && !this.preview()?.attemptStarted && !this.preview()?.attemptFinished,
   );
+  protected readonly durationText = computed(() => {
+    const preview = this.preview();
+    const minutes = preview?.enforcedMinutes || preview?.totalMinutes || 0;
+    if (preview?.extraTimePercent) {
+      return `${minutes} minutes, including ${preview.extraTimePercent}% extra time.`;
+    }
+    return `${minutes} minutes, kept by the server.`;
+  });
+  protected readonly submitBody = computed(() => {
+    const missing = this.flat()
+      .map((question, index) => (this.answered(question) ? null : index + 1))
+      .filter((index): index is number => index !== null);
+    const gap = missing.length ? ` Not answered: ${missing.join(', ')}.` : '';
+    return `${this.answeredCount()} of ${this.flat().length} answered.${gap} You cannot change answers after submitting.`;
+  });
   protected readonly label = typeLabel;
 
   constructor() {
     const handle = window.setInterval(() => this.tick(), 1000);
-    const media = window.matchMedia('(max-width: 767px)');
-    const apply = () => this.narrow.set(media.matches);
+    const phone = window.matchMedia('(max-width: 767px)');
+    const compact = window.matchMedia('(max-width: 1023px)');
+    const apply = () => {
+      this.phone.set(phone.matches);
+      this.compact.set(compact.matches);
+    };
     apply();
-    media.addEventListener('change', apply);
+    phone.addEventListener('change', apply);
+    compact.addEventListener('change', apply);
     inject(DestroyRef).onDestroy(() => {
       window.clearInterval(handle);
-      media.removeEventListener('change', apply);
+      phone.removeEventListener('change', apply);
+      compact.removeEventListener('change', apply);
     });
     void this.restore();
   }
@@ -332,6 +361,8 @@ export class TakePage {
     if (next.has(id)) next.delete(id);
     else next.add(id);
     this.flags.set(next);
+    const attemptId = this.paper()?.attemptId;
+    if (attemptId) sessionStorage.setItem(`shortlist.flags.${attemptId}`, JSON.stringify([...next]));
   }
 
   protected single(question: FlatQuestion): string {
@@ -418,7 +449,7 @@ export class TakePage {
     try {
       const session = await this.api.send<Preview>('POST', `/api/assessments/v1/take/${this.token}/verify`, { code });
       this.remember(session);
-      this.step.set('check');
+      this.step.set(session.attemptFinished ? 'already' : 'check');
     } catch (error) {
       this.error.set(problemMessage(error));
     }
@@ -436,7 +467,7 @@ export class TakePage {
     } catch (error) {
       const message = problemMessage(error);
       if (/finished|closed/i.test(message)) {
-        this.step.set('done');
+        this.step.set('already');
         return;
       }
       this.error.set(message);
@@ -471,6 +502,10 @@ export class TakePage {
       const session = await this.api.get<Preview>('/api/assessments/v1/take/session');
       if (session.invitationId !== saved) return;
       this.preview.set(session);
+      if (session.attemptFinished) {
+        this.step.set('already');
+        return;
+      }
       if (session.attemptStarted) await this.start();
       else this.step.set('check');
     } catch {
@@ -490,6 +525,17 @@ export class TakePage {
     }
     this.answers.set(answers);
     this.paper.set(paper);
+    const stored = sessionStorage.getItem(`shortlist.flags.${paper.attemptId}`);
+    if (stored) {
+      try {
+        this.flags.set(new Set(JSON.parse(stored) as string[]));
+      } catch {
+        this.flags.set(new Set());
+      }
+    }
+    if (Object.keys(answers).length) {
+      this.saveState.set('Saved answers restored.');
+    }
   }
 
   private store(question: FlatQuestion, value: AnswerValue): void {

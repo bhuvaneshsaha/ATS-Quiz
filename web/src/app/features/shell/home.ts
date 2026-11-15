@@ -4,7 +4,7 @@ import { SessionStore } from '../../core/session';
 import { EmptyState } from '../../shared/components/empty-state';
 import { PageHeader } from '../../shared/components/page-header';
 
-const destinations = [
+export const destinations = [
   { path: '/openings', permission: 'Core.Openings.View' },
   { path: '/candidates', permission: 'Core.Candidates.View' },
   { path: '/workspace', permission: 'Core.HiringUnits.View' },
@@ -14,6 +14,10 @@ const destinations = [
   { path: '/results', permission: 'Assessments.Results.View' },
   { path: '/people', permission: 'Identity.Users.Manage' },
 ];
+
+export function firstAllowed(can: (permission: string) => boolean): string | null {
+  return destinations.find((item) => can(item.permission))?.path ?? null;
+}
 
 @Component({
   selector: 'app-home',
@@ -31,9 +35,9 @@ export class HomePage {
   constructor() {
     const session = inject(SessionStore);
     const router = inject(Router);
-    const next = destinations.find((item) => session.can(item.permission));
+    const next = firstAllowed((permission) => session.can(permission));
     if (next) {
-      void router.navigateByUrl(next.path);
+      void router.navigateByUrl(next);
     }
   }
 }

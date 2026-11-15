@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { email, form, FormField as BoundField, required } from '@angular/forms/signals';
 import { SessionStore } from '../../core/session';
+import { firstAllowed } from '../shell/home';
 import { Card } from '../../shared/components/card';
 import { FormField } from '../../shared/components/form-field';
 import { Button } from '../../shared/ui/button';
@@ -61,7 +62,7 @@ export class LoginPage {
 
     const ok = await this.session.signIn(this.model().email, this.model().password);
     if (ok) {
-      await this.router.navigateByUrl('/openings');
+      await this.router.navigateByUrl(firstAllowed((permission) => this.session.can(permission)) ?? '/');
     }
   }
 }

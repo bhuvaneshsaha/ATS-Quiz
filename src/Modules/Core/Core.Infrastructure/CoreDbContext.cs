@@ -86,6 +86,29 @@ public sealed class CoreEventMapper : IIntegrationEventMapper
     };
 }
 
+public sealed class CoreCatalogueReader(CoreDbContext db) : ICatalogueReader
+{
+    public async Task<IReadOnlyDictionary<Guid, string>> FunctionNamesAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken)
+    {
+        if (ids.Count == 0)
+        {
+            return new Dictionary<Guid, string>();
+        }
+
+        return await db.Functions.Where(item => ids.Contains(item.Id)).ToDictionaryAsync(item => item.Id, item => item.Name, cancellationToken);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, string>> OpeningTitlesAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken)
+    {
+        if (ids.Count == 0)
+        {
+            return new Dictionary<Guid, string>();
+        }
+
+        return await db.Openings.Where(item => ids.Contains(item.Id)).ToDictionaryAsync(item => item.Id, item => item.Title, cancellationToken);
+    }
+}
+
 public sealed class CoreApplicationReader(CoreDbContext db) : IApplicationReader
 {
     public async Task<ApplicationSnapshot?> FindAsync(Guid applicationId, CancellationToken cancellationToken)

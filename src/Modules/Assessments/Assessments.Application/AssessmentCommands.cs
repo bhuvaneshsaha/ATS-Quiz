@@ -36,7 +36,7 @@ public sealed class AssessmentsPermissionSource : IPermissionSource
     public IEnumerable<PermissionDefinition> GetPermissions() => AssessmentPermissions.All;
 }
 
-public sealed record QuestionResponse(Guid Id, Guid FunctionId, string Status, Guid CurrentVersionId, int VersionNumber, string Type, decimal Points, bool VersionPublished, JsonElement Content);
+public sealed record QuestionResponse(Guid Id, Guid FunctionId, string FunctionName, string Status, Guid CurrentVersionId, int VersionNumber, string Type, decimal Points, bool VersionPublished, JsonElement Content);
 public sealed record AssessmentResponse(Guid Id, Guid FunctionId, string Name, string Status, AssessmentVersionResponse? Current);
 public sealed record AssessmentVersionResponse(Guid Id, int Number, decimal PassMark, bool DesktopOnly, bool IsPublished, IReadOnlyList<SectionResponse> Sections);
 public sealed record SectionResponse(Guid Id, int Order, string Name, int Minutes, decimal Weight, string Source, IReadOnlyList<Guid> QuestionVersionIds, int? DrawCount);
@@ -45,11 +45,11 @@ public sealed record InvitationResponse(Guid Id, Guid ApplicationId, string Stat
 public sealed record PaperResponse(Guid AttemptId, DateTimeOffset ServerTime, DateTimeOffset Deadline, bool DesktopOnly, IReadOnlyList<PaperSectionResponse> Sections, IReadOnlyList<SavedAnswerResponse> Answers);
 public sealed record PaperSectionResponse(Guid SectionId, string Name, int Minutes, decimal Weight, DateTimeOffset Deadline, IReadOnlyList<JsonElement> Questions);
 public sealed record SavedAnswerResponse(Guid QuestionVersionId, JsonElement Response);
-public sealed record CandidateSessionResponse(Guid InvitationId, string AssessmentName, bool DesktopOnly, int TotalMinutes, bool AttemptStarted);
+public sealed record CandidateSessionResponse(Guid InvitationId, string AssessmentName, bool DesktopOnly, int TotalMinutes, int ExtraTimePercent, int EnforcedMinutes, bool AttemptStarted, bool AttemptFinished);
 public sealed record SaveAnswerResponse(bool Accepted, DateTimeOffset ServerTime, DateTimeOffset Deadline);
-public sealed record GradeQueueItem(Guid AnswerId, Guid AttemptId, string Prompt, string Rubric, decimal Points, string ResponseJson);
+public sealed record GradeQueueItem(Guid AnswerId, Guid AttemptId, string AssessmentName, string Prompt, string Rubric, decimal Points, string ResponseJson);
 public sealed record ResultResponse(Guid AttemptId, Guid ApplicationId, decimal Total, decimal Max, bool Passed, string Status, string SectionScoresJson);
-public sealed record ResultListItem(Guid AttemptId, Guid ApplicationId, string CandidateName, decimal Total, decimal Max, bool Passed, string Status);
+public sealed record ResultListItem(Guid AttemptId, Guid ApplicationId, string CandidateName, Guid? OpeningId, string OpeningTitle, string AssessmentName, decimal Total, decimal Max, bool Passed, string Status, string SectionScoresJson, string ReportKind);
 
 public sealed record SectionInput(string Name, int Minutes, decimal Weight, string Source, Guid[] QuestionVersionIds, int? DrawCount, string[]? DrawTypes, Guid[]? SkillIds);
 
@@ -66,9 +66,10 @@ public sealed record ListAssessments(Guid? FunctionId) : IQuery<Result<IReadOnly
 public sealed record CreateBinding(Guid OpeningStageId, Guid AssessmentVersionId, decimal? PassMarkOverride, int ValidDays, int ExtraTimePercent) : ICommand<Result<BindingResponse>>;
 public sealed record ListBindings(Guid? OpeningStageId) : IQuery<Result<IReadOnlyList<BindingResponse>>>;
 public sealed record ListInvitations(Guid? ApplicationId) : IQuery<Result<IReadOnlyList<InvitationResponse>>>;
+public sealed record ResendInvitation(Guid InvitationId) : ICommand<Result>;
 public sealed record RequestCandidateCode(string Token) : ICommand<Result>;
 public sealed record VerifyCandidateCode(string Token, string Code) : ICommand<Result<VerifiedCandidate>>;
-public sealed record VerifiedCandidate(Guid InvitationId, Guid WorkspaceId, string Email, string AssessmentName, bool DesktopOnly, int TotalMinutes, bool AttemptStarted);
+public sealed record VerifiedCandidate(Guid InvitationId, Guid WorkspaceId, string Email, string AssessmentName, bool DesktopOnly, int TotalMinutes, int ExtraTimePercent, int EnforcedMinutes, bool AttemptStarted, bool AttemptFinished);
 public sealed record GetCandidateSession : IQuery<Result<CandidateSessionResponse>>;
 public sealed record StartAttempt : ICommand<Result<PaperResponse>>;
 public sealed record GetPaper : IQuery<Result<PaperResponse>>;

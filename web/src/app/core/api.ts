@@ -12,6 +12,9 @@ export interface Problem {
 export function problemMessage(error: unknown): string {
   if (error instanceof HttpErrorResponse) {
     const body = error.error as Problem | undefined;
+    if (error.status === 403) {
+      return body?.title || "You don't have access to this.";
+    }
     return body?.title || body?.detail || `Request failed (${error.status}).`;
   }
 

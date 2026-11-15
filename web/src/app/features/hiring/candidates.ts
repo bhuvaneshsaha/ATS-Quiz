@@ -1,8 +1,10 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { email, form, FormField as BoundField, required } from '@angular/forms/signals';
 import { Api, problemMessage } from '../../core/api';
+import { SessionStore } from '../../core/session';
 import { en } from '../../../locale/en';
 import { Button } from '../../shared/ui/button';
+import { Combobox, ComboOption } from '../../shared/ui/combobox';
 import { FieldControl } from '../../shared/ui/field';
 import { Card } from '../../shared/components/card';
 import { DataColumn, DataTable } from '../../shared/components/data-table';
@@ -24,7 +26,7 @@ interface Opening {
 
 @Component({
   selector: 'app-candidates',
-  imports: [BoundField, Button, FieldControl, Card, DataTable, FormField, PageHeader],
+  imports: [BoundField, Button, Combobox, FieldControl, Card, DataTable, FormField, PageHeader],
   template: `
     <section class="page">
       <app-page-header>
@@ -41,6 +43,7 @@ interface Opening {
           [track]="track"
           [empty]="copy.emptyCandidates"
         />
+        @if (canAdd()) {
         <app-card class="w-full lg:w-80">
           <h2 i18n>Add a candidate</h2>
           <form class="flex flex-col gap-3" (submit)="create($event)">
@@ -50,13 +53,14 @@ interface Opening {
             <app-form-field label="Email" [required]="true">
               <input appControl type="email" [formField]="draft.email" />
             </app-form-field>
-            <app-form-field label="Opening">
-              <select appControl name="opening">
-                <option value="">Do not apply yet</option>
-                @for (opening of openings(); track opening.id) {
-                  <option [value]="opening.id">{{ opening.title }}</option>
-                }
-              </select>
+            <app-form-field label="Opening" [error]="openingError()">
+              <app-combobox
+                name="opening"
+                [options]="openingOptions()"
+                [value]="openingId()"
+                placeholder="Do not apply yet"
+                (valueChange)="openingId.set($event)"
+              />
             </app-form-field>
             <label class="flex min-h-11 items-center gap-2 text-ink">
               <input class="size-5 accent-accent" type="checkbox" name="consent" required />
@@ -71,16 +75,23 @@ interface Opening {
             Each person is shared across openings. Applying them adds the first stage.
           </p>
         </app-card>
+        }
       </div>
     </section>
   `,
 })
 export class CandidatesPage {
   private readonly api = inject(Api);
+  private readonly session = inject(SessionStore);
   protected readonly copy = en;
   protected readonly candidates = signal<Candidate[]>([]);
   protected readonly openings = signal<Opening[]>([]);
   protected readonly error = signal<string | null>(null);
+  protected readonly openingError = signal<string | null>(null);
+  protected readonly openingId = signal('');
+  protected readonly openingOptions = computed<ComboOption[]>(() =>
+    this.openings().map((opening) => ({ value: opening.id, label: opening.title })),
+  );
   protected readonly model = signal({ name: '', email: '' });
   protected readonly draft = form(this.model, (path) => {
     required(path.name);
@@ -98,13 +109,22 @@ export class CandidatesPage {
     void this.reload();
   }
 
+  protected canAdd(): boolean {
+    return this.session.can('Core.Candidates.Manage');
+  }
+
   private async reload(): Promise<void> {
-    const [candidates, openings] = await Promise.all([
-      this.api.get<{ items: Candidate[] }>('/api/core/v1/candidates?limit=50'),
-      this.api.get<{ items: Opening[] }>('/api/core/v1/openings?limit=50'),
-    ]);
+    const candidates = await this.api.get<{ items: Candidate[] }>('/api/core/v1/candidates?limit=50');
     this.candidates.set(candidates.items);
-    this.openings.set(openings.items);
+    if (!this.canAdd()) {
+      return;
+    }
+    try {
+      const openings = await this.api.get<{ items: Opening[] }>('/api/core/v1/openings?limit=50');
+      this.openings.set(openings.items);
+    } catch (error) {
+      this.openingError.set(problemMessage(error));
+    }
   }
 
   protected async create(event: Event): Promise<void> {
@@ -127,7 +147,7 @@ export class CandidatesPage {
         },
         true,
       );
-      const openingId = formData.get('opening')?.toString();
+      const openingId = this.openingId();
       if (openingId) {
         await this.api.send(
           'POST',
@@ -137,6 +157,7 @@ export class CandidatesPage {
         );
       }
       this.model.set({ name: '', email: '' });
+      this.openingId.set('');
       await this.reload();
     } catch (error) {
       this.error.set(problemMessage(error));

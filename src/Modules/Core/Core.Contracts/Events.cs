@@ -13,6 +13,12 @@ public sealed record ApplicationStageChanged(
     string StageType,
     string? AutomatedBy) : IIntegrationEvent;
 
+public interface ICatalogueReader
+{
+    Task<IReadOnlyDictionary<Guid, string>> FunctionNamesAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken);
+    Task<IReadOnlyDictionary<Guid, string>> OpeningTitlesAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken);
+}
+
 public interface IApplicationReader
 {
     Task<ApplicationSnapshot?> FindAsync(Guid applicationId, CancellationToken cancellationToken);

@@ -1,8 +1,10 @@
 import { Component, computed, inject, signal } from '@angular/core';
+import { ComboOption } from '../../shared/ui/combobox';
 import { Api, problemMessage } from '../../core/api';
 import { SessionStore } from '../../core/session';
 import { en } from '../../../locale/en';
 import { Button } from '../../shared/ui/button';
+import { Combobox } from '../../shared/ui/combobox';
 import { FieldControl } from '../../shared/ui/field';
 import { Card } from '../../shared/components/card';
 import { DataColumn, DataTable } from '../../shared/components/data-table';
@@ -19,6 +21,7 @@ interface Named {
 interface QuestionRow {
   id: string;
   functionId: string;
+  functionName?: string;
   status: string;
   type: string;
   points: number;
@@ -27,7 +30,7 @@ interface QuestionRow {
 
 @Component({
   selector: 'app-questions',
-  imports: [Button, FieldControl, Card, DataTable, FilterChips, FormField, PageHeader],
+  imports: [Button, Combobox, FieldControl, Card, DataTable, FilterChips, FormField, PageHeader],
   template: `
     <section class="page">
       <app-page-header>
@@ -48,35 +51,42 @@ interface QuestionRow {
             placeholder="Search question text"
           />
         </app-form-field>
-        <app-form-field class="min-w-44 flex-1" label="Function">
-          <select appControl [value]="functionId()" (change)="functionId.set($any($event.target).value)">
-            <option value="" i18n>All functions</option>
-            @for (item of functions(); track item.id) {
-              <option [value]="item.id">{{ item.name }}</option>
-            }
-          </select>
-        </app-form-field>
+        @if (session.can('Core.Functions.View')) {
+          <app-form-field class="min-w-44 flex-1" label="Function">
+            <app-combobox
+              [options]="functionOptions()"
+              [value]="functionId()"
+              placeholder="All functions"
+              (valueChange)="functionId.set($event)"
+            />
+          </app-form-field>
+        }
       </div>
 
-      <app-data-table
-        [columns]="columns"
-        [rows]="visible()"
-        [track]="track"
-        [empty]="emptyMessage()"
-        (activated)="advance($event)"
-      />
+      @if (!(error() && questions().length === 0)) {
+        <app-data-table
+          [columns]="columns"
+          [rows]="visible()"
+          [track]="track"
+          [empty]="emptyMessage()"
+          (activated)="advance($event)"
+        />
+      }
 
       @if (canWrite()) {
         <app-card>
           <h2 i18n>New question</h2>
           <form class="flex flex-col gap-3" (submit)="create($event)">
-            <app-form-field label="Function" [required]="true">
-              <select appControl name="functionId" required>
-                <option value="" i18n>Select</option>
-                @for (item of functions(); track item.id) {
-                  <option [value]="item.id">{{ item.name }}</option>
-                }
-              </select>
+            <app-form-field label="Function" [required]="true" [error]="fieldError()" errorId="function-error">
+              <app-combobox
+                name="functionId"
+                [options]="functionOptions()"
+                [value]="createFunctionId()"
+                [invalid]="!!fieldError()"
+                describedBy="function-error"
+                placeholder="Type a function"
+                (valueChange)="createFunctionId.set($event)"
+              />
             </app-form-field>
             <app-form-field label="Type" [required]="true">
               <select appControl [value]="draft().type" (change)="setType($any($event.target).value)">
@@ -88,8 +98,16 @@ interface QuestionRow {
                 <option value="matching">Matching</option>
               </select>
             </app-form-field>
-            <app-form-field label="Prompt" [required]="true">
-              <textarea appControl rows="3" [value]="draft().prompt" (input)="patch({ prompt: $any($event.target).value })"></textarea>
+            <app-form-field label="Prompt" [required]="true" [error]="contentError()" errorId="prompt-error">
+              <textarea
+                id="question-prompt"
+                appControl
+                rows="3"
+                [attr.aria-invalid]="contentError() ? true : null"
+                [attr.aria-describedby]="contentError() ? 'prompt-error' : null"
+                [value]="draft().prompt"
+                (input)="patch({ prompt: $any($event.target).value })"
+              ></textarea>
             </app-form-field>
             <app-form-field label="Points" [required]="true">
               <input
@@ -185,6 +203,9 @@ interface QuestionRow {
           </form>
         </app-card>
       }
+      @if (notice()) {
+        <p id="question-notice" class="text-sm text-ink-soft" role="status" tabindex="-1">{{ notice() }}</p>
+      }
       @if (error()) {
         <p class="text-sm text-danger" role="alert">{{ error() }}</p>
       }
@@ -193,31 +214,35 @@ interface QuestionRow {
 })
 export class QuestionsPage {
   private readonly api = inject(Api);
-  private readonly session = inject(SessionStore);
+  protected readonly session = inject(SessionStore);
   protected readonly copy = en;
   protected readonly functions = signal<Named[]>([]);
   protected readonly questions = signal<QuestionRow[]>([]);
   protected readonly functionId = signal('');
+  protected readonly createFunctionId = signal('');
+  protected readonly fieldError = signal<string | null>(null);
+  protected readonly contentError = signal<string | null>(null);
+  protected readonly functionOptions = computed<ComboOption[]>(() =>
+    this.functions().map((item) => ({ value: item.id, label: item.name })),
+  );
   protected readonly status = signal('');
   protected readonly search = signal('');
   protected readonly error = signal<string | null>(null);
+  protected readonly notice = signal<string | null>(null);
   protected readonly draft = signal<QuestionDraft>(emptyDraft());
   protected readonly canWrite = computed(() => this.session.can('Assessments.Questions.Write'));
   protected readonly columns: DataColumn<QuestionRow>[] = [
-    { header: 'Question', value: (row) => row.content.prompt ?? '' },
+    { header: 'Question', value: (row) => row.content.prompt ?? '', href: (row) => `/questions/${row.id}` },
     { header: 'Type', value: (row) => typeLabel(row.type) },
     { header: 'Points', value: (row) => String(row.points) },
-    { header: 'Function', value: (row) => this.functionName(row.functionId) },
+    { header: 'Function', value: (row) => row.functionName || this.functionName(row.functionId) },
     { header: 'Status', value: (row) => row.status, status: true },
     {
-      header: '',
+      header: 'Action',
       value: () => '',
       action: (row) => {
         if (row.status === 'Draft' && this.session.can('Assessments.Questions.Write')) {
           return 'Submit';
-        }
-        if (row.status === 'InReview' && this.session.can('Assessments.Questions.Approve')) {
-          return 'Publish';
         }
         return null;
       },
@@ -250,17 +275,19 @@ export class QuestionsPage {
     ];
   });
   protected readonly subtitle = computed(
-    () => `${this.questions().length} questions · drafts stay editable until they are published`,
+    () => `${this.questions().length} questions · open a question to review it before it is published`,
   );
   protected readonly emptyMessage = computed(() =>
     this.questions().length === 0 ? en.emptyQuestions : 'No questions match this view.',
   );
 
   constructor() {
-    void this.api
-      .get<Named[]>('/api/core/v1/functions')
-      .then((rows) => this.functions.set(rows))
-      .catch((error) => this.error.set(problemMessage(error)));
+    if (this.session.can('Core.Functions.View')) {
+      void this.api
+        .get<Named[]>('/api/core/v1/functions')
+        .then((rows) => this.functions.set(rows))
+        .catch((error) => this.error.set(problemMessage(error)));
+    }
     void this.reload();
   }
 
@@ -332,15 +359,18 @@ export class QuestionsPage {
   protected async create(event: Event): Promise<void> {
     event.preventDefault();
     const form = event.target as HTMLFormElement;
-    const functionId = new FormData(form).get('functionId')?.toString() ?? '';
+    const functionId = this.createFunctionId();
     this.error.set(null);
+    this.fieldError.set(null);
+    this.contentError.set(null);
     if (!functionId) {
-      this.error.set('Choose a function.');
+      this.fieldError.set('Choose a function.');
       return;
     }
     const built = buildQuestionContent(this.draft());
     if ('error' in built) {
-      this.error.set(built.error);
+      this.contentError.set(built.error);
+      queueMicrotask(() => document.getElementById('question-prompt')?.focus());
       return;
     }
     try {
@@ -357,6 +387,7 @@ export class QuestionsPage {
         true,
       );
       this.draft.set(emptyDraft());
+      this.createFunctionId.set('');
       form.reset();
       await this.reload();
     } catch (error) {
@@ -369,9 +400,8 @@ export class QuestionsPage {
     try {
       if (question.status === 'Draft') {
         await this.api.send('POST', `/api/assessments/v1/questions/${question.id}/submit`, {});
-      }
-      if (question.status === 'InReview') {
-        await this.api.send('POST', `/api/assessments/v1/questions/${question.id}/publish`, {});
+        this.notice.set('Submitted for review.');
+        queueMicrotask(() => document.getElementById('question-notice')?.focus());
       }
       await this.reload();
     } catch (error) {
@@ -382,6 +412,7 @@ export class QuestionsPage {
   private async reload(): Promise<void> {
     try {
       this.questions.set(await this.api.get<QuestionRow[]>('/api/assessments/v1/questions'));
+      this.error.set(null);
     } catch (error) {
       this.error.set(problemMessage(error));
     }
