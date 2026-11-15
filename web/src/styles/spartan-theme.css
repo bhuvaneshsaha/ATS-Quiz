@@ -1,0 +1,37 @@
+/* Spartan variables point at the product tokens. Helm utilities such as bg-primary read these. */
+:root {
+  --background: var(--color-canvas);
+  --foreground: var(--color-ink);
+  --card: var(--color-surface);
+  --card-foreground: var(--color-ink);
+  --popover: var(--color-surface);
+  --popover-foreground: var(--color-ink);
+  --primary: var(--color-accent);
+  --primary-foreground: #ffffff;
+  --secondary: var(--color-line-soft);
+  --secondary-foreground: var(--color-ink);
+  --muted: var(--color-line-soft);
+  --muted-foreground: var(--color-muted);
+  --accent: var(--color-accent-tint);
+  --accent-foreground: var(--color-ink);
+  --destructive: var(--color-danger);
+  --border: var(--color-line);
+  --input: var(--color-line-strong);
+  --ring: var(--color-accent);
+  --radius: 0.5rem;
+
+  --sidebar: var(--color-nav);
+  --sidebar-foreground: var(--color-nav-ink);
+  --sidebar-primary: var(--color-accent);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--color-nav-active);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: var(--color-nav-active);
+  --sidebar-ring: var(--color-accent);
+
+  --chart-1: var(--color-accent);
+  --chart-2: var(--color-info);
+  --chart-3: var(--color-warn);
+  --chart-4: var(--color-danger);
+  --chart-5: var(--color-ink-soft);
+}

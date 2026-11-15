@@ -1,6 +1,12 @@
 import { Component, inject, signal } from '@angular/core';
 import { Api } from '../../core/api';
 import { en } from '../../../locale/en';
+import { Button } from '../../shared/ui/button';
+import { FieldControl } from '../../shared/ui/field';
+import { Card } from '../../shared/components/card';
+import { EmptyState } from '../../shared/components/empty-state';
+import { FormField } from '../../shared/components/form-field';
+import { PageHeader } from '../../shared/components/page-header';
 
 interface GradeItem {
   answerId: string;
@@ -12,23 +18,38 @@ interface GradeItem {
 
 @Component({
   selector: 'app-grading',
+  imports: [Button, FieldControl, Card, EmptyState, FormField, PageHeader],
   template: `
-    <section class="mx-auto max-w-3xl px-4 py-6">
-      <h1 class="font-serif text-3xl" i18n>Grading</h1>
-      <p class="mt-2 text-sm text-ink/70" i18n>Names are hidden. Score the answer in front of you.</p>
-      <div class="mt-6 space-y-4">
-        @for (item of queue(); track item.answerId) {
-          <article class="rounded-2xl border border-line bg-card p-4">
-            <p class="font-medium">{{ item.prompt }}</p>
-            <p class="mt-2 text-sm">{{ item.responseJson }}</p>
-            <p class="mt-2 text-sm text-ink/70">{{ item.rubric }}</p>
-            <form class="mt-3 flex gap-2" (submit)="grade(item, $event)">
-              <input class="h-11 w-24 rounded-lg border border-line px-3" name="score" type="number" min="0" [max]="item.points" required />
-              <button class="h-11 rounded-lg bg-teal px-4 text-card" i18n>Save score</button>
-            </form>
-          </article>
-        } @empty { <p class="text-sm text-ink/70">{{ copy.emptyGrading }}</p> }
-      </div>
+    <section class="page">
+      <app-page-header>
+        <ng-container pageTitle i18n>Grading</ng-container>
+        <ng-container pageSubtitle i18n
+          >Names are hidden. Score the answer in front of you.</ng-container
+        >
+      </app-page-header>
+      @for (item of queue(); track item.answerId) {
+        <app-card>
+          <p class="font-medium">{{ item.prompt }}</p>
+          <p>{{ item.responseJson }}</p>
+          <p class="text-sm text-muted">{{ item.rubric }}</p>
+          <form class="flex flex-wrap items-end gap-3" (submit)="grade(item, $event)">
+            <app-form-field label="Score" [required]="true">
+              <input
+                appControl
+                class="w-24"
+                name="score"
+                type="number"
+                min="0"
+                [max]="item.points"
+                required
+              />
+            </app-form-field>
+            <button appButton i18n>Save score</button>
+          </form>
+        </app-card>
+      } @empty {
+        <app-empty-state [message]="copy.emptyGrading" />
+      }
     </section>
   `,
 })
@@ -48,7 +69,10 @@ export class GradingPage {
   protected async grade(item: GradeItem, event: Event): Promise<void> {
     event.preventDefault();
     const score = Number(new FormData(event.target as HTMLFormElement).get('score'));
-    await this.api.send('POST', `/api/assessments/v1/grading/answers/${item.answerId}`, { score, comment: null });
+    await this.api.send('POST', `/api/assessments/v1/grading/answers/${item.answerId}`, {
+      score,
+      comment: null,
+    });
     await this.reload();
   }
 }

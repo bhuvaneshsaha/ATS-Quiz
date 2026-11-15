@@ -1,39 +1,90 @@
 import { Component, inject, signal } from '@angular/core';
 import { Api, problemMessage } from '../../core/api';
+import { Button } from '../../shared/ui/button';
+import { FieldControl } from '../../shared/ui/field';
+import { Card } from '../../shared/components/card';
+import { FormField } from '../../shared/components/form-field';
+import { PageHeader } from '../../shared/components/page-header';
+import { StatusPill } from '../../shared/components/status-pill';
 
-interface Named { id: string; name: string }
-interface QuestionRow { id: string; status: string; currentVersionId: string; content: { prompt?: string } }
-interface AssessmentRow { id: string; name: string; status: string; current: { id: string; isPublished: boolean } | null }
+interface Named {
+  id: string;
+  name: string;
+}
+interface QuestionRow {
+  id: string;
+  status: string;
+  currentVersionId: string;
+  content: { prompt?: string };
+}
+interface AssessmentRow {
+  id: string;
+  name: string;
+  status: string;
+  current: { id: string; isPublished: boolean } | null;
+}
 
 @Component({
   selector: 'app-assessments',
+  imports: [Button, FieldControl, Card, FormField, PageHeader, StatusPill],
   template: `
-    <section class="mx-auto max-w-5xl px-4 py-6">
-      <h1 class="font-serif text-3xl" i18n>Assessments</h1>
-      <ul class="mt-6 space-y-2 text-sm">
+    <section class="page">
+      <app-page-header>
+        <ng-container pageTitle i18n>Assessments</ng-container>
+        <ng-container pageSubtitle i18n
+          >A published version stays pinned to the openings that use it</ng-container
+        >
+      </app-page-header>
+      <ul class="flex flex-col gap-2">
         @for (item of rows(); track item.id) {
-          <li class="flex items-center justify-between rounded-xl border border-line bg-card px-3 py-3">
-            <span>{{ item.name }} · {{ item.status }}</span>
-            @if (item.status !== 'Published') { <button class="h-11 rounded-lg bg-teal px-3 text-card" type="button" (click)="publish(item.id)" i18n>Publish</button> }
+          <li
+            class="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line bg-surface px-4 py-3"
+          >
+            <span class="font-medium">{{ item.name }}</span>
+            <span class="flex items-center gap-2">
+              <app-status-pill [status]="item.status" />
+              @if (item.status !== 'Published') {
+                <button appButton type="button" (click)="publish(item.id)" i18n>Publish</button>
+              }
+            </span>
           </li>
         }
       </ul>
-      <form class="mt-8 space-y-3 rounded-2xl border border-line bg-card p-4" (submit)="create($event)">
-        <h2 class="font-serif text-xl" i18n>New test</h2>
-        <select class="h-11 w-full rounded-lg border border-line px-3" name="function" (change)="loadQuestions($any($event.target).value)" required>
-          <option value="" i18n>Function</option>
-          @for (item of functions(); track item.id) { <option [value]="item.id">{{ item.name }}</option> }
-        </select>
-        <input class="h-11 w-full rounded-lg border border-line px-3" name="name" required i18n-placeholder placeholder="Assessment name" />
-        <select class="h-11 w-full rounded-lg border border-line px-3" name="question" required>
-          <option value="" i18n>Published question</option>
-          @for (question of questions(); track question.id) {
-            @if (question.status === 'Published') { <option [value]="question.currentVersionId">{{ question.content.prompt }}</option> }
-          }
-        </select>
-        <button class="h-11 rounded-lg bg-ink px-4 text-card" i18n>Create draft</button>
-      </form>
-      @if (error()) { <p class="mt-4 text-sm text-clay" role="alert">{{ error() }}</p> }
+      <app-card>
+        <h2 i18n>New test</h2>
+        <form class="flex flex-col gap-3" (submit)="create($event)">
+          <app-form-field label="Function" [required]="true">
+            <select
+              appControl
+              name="function"
+              required
+              (change)="loadQuestions($any($event.target).value)"
+            >
+              <option value="" i18n>Function</option>
+              @for (item of functions(); track item.id) {
+                <option [value]="item.id">{{ item.name }}</option>
+              }
+            </select>
+          </app-form-field>
+          <app-form-field label="Assessment name" [required]="true">
+            <input appControl name="name" required />
+          </app-form-field>
+          <app-form-field label="Published question" [required]="true">
+            <select appControl name="question" required>
+              <option value="" i18n>Published question</option>
+              @for (question of questions(); track question.id) {
+                @if (question.status === 'Published') {
+                  <option [value]="question.currentVersionId">{{ question.content.prompt }}</option>
+                }
+              }
+            </select>
+          </app-form-field>
+          <button appButton i18n>Create draft</button>
+        </form>
+      </app-card>
+      @if (error()) {
+        <p class="text-sm text-danger" role="alert">{{ error() }}</p>
+      }
     </section>
   `,
 })
@@ -57,7 +108,9 @@ export class AssessmentsPage {
     if (!functionId) {
       return;
     }
-    this.questions.set(await this.api.get<QuestionRow[]>(`/api/assessments/v1/questions?functionId=${functionId}`));
+    this.questions.set(
+      await this.api.get<QuestionRow[]>(`/api/assessments/v1/questions?functionId=${functionId}`),
+    );
   }
 
   protected async create(event: Event): Promise<void> {
@@ -65,22 +118,29 @@ export class AssessmentsPage {
     const data = new FormData(event.target as HTMLFormElement);
     this.error.set(null);
     try {
-      await this.api.send('POST', '/api/assessments/v1/assessments', {
-        functionId: data.get('function'),
-        name: data.get('name'),
-        passMark: 50,
-        desktopOnly: false,
-        sections: [{
-          name: 'Main',
-          minutes: 20,
-          weight: 1,
-          source: 'fixed',
-          questionVersionIds: [data.get('question')],
-          drawCount: null,
-          drawTypes: null,
-          skillIds: null,
-        }],
-      }, true);
+      await this.api.send(
+        'POST',
+        '/api/assessments/v1/assessments',
+        {
+          functionId: data.get('function'),
+          name: data.get('name'),
+          passMark: 50,
+          desktopOnly: false,
+          sections: [
+            {
+              name: 'Main',
+              minutes: 20,
+              weight: 1,
+              source: 'fixed',
+              questionVersionIds: [data.get('question')],
+              drawCount: null,
+              drawTypes: null,
+              skillIds: null,
+            },
+          ],
+        },
+        true,
+      );
       (event.target as HTMLFormElement).reset();
       await this.reload();
     } catch (error) {

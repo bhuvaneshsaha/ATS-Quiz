@@ -1,0 +1,124 @@
+@layer components {
+  .btn {
+    display: inline-flex;
+    min-height: 2.75rem;
+    align-items: center;
+    justify-content: center;
+    gap: --spacing(2);
+    border-radius: var(--radius-control);
+    border: 1px solid transparent;
+    padding-inline: --spacing(4);
+    text-align: center;
+    font-weight: 500;
+    text-decoration: none;
+    transition-property: background-color, border-color, color;
+    transition-duration: 150ms;
+  }
+
+  .btn:hover {
+    text-decoration: none;
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+  }
+
+  .btn[data-variant='primary'] {
+    background: var(--color-accent);
+    color: #fff;
+  }
+
+  .btn[data-variant='primary']:hover {
+    background: var(--color-accent-strong);
+    color: #fff;
+  }
+
+  .btn[data-variant='dark'] {
+    background: var(--color-ink);
+    color: #fff;
+  }
+
+  .btn[data-variant='dark']:hover {
+    background: var(--color-ink-soft);
+    color: #fff;
+  }
+
+  .btn[data-variant='secondary'] {
+    border-color: var(--color-line-strong);
+    background: var(--color-surface);
+    color: var(--color-ink);
+  }
+
+  .btn[data-variant='secondary']:hover {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+  }
+
+  .btn[data-variant='dashed'] {
+    border-style: dashed;
+    border-color: var(--color-line-dashed);
+    background: var(--color-surface);
+    color: var(--color-ink);
+  }
+
+  .btn[data-variant='dashed']:hover {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+  }
+
+  .btn[data-variant='danger'] {
+    background: transparent;
+    color: var(--color-danger);
+  }
+
+  .btn[data-variant='danger']:hover {
+    background: var(--color-danger-tint);
+    color: var(--color-danger);
+  }
+
+  .field-control {
+    box-sizing: border-box;
+    min-height: 2.75rem;
+    width: 100%;
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-control);
+    background: var(--color-surface);
+    padding-inline: --spacing(3);
+    color: var(--color-ink);
+  }
+
+  [brnSheetContent] {
+    background: var(--color-surface);
+    color: var(--color-ink);
+    min-height: 100%;
+  }
+
+  .cdk-overlay-pane:has(app-side-nav) {
+    height: 100%;
+  }
+
+  .cdk-overlay-pane:has(.take-sheet) {
+    width: 100%;
+  }
+
+  app-card,
+  app-form-field,
+  app-page-header,
+  app-data-table,
+  app-stat-tile,
+  app-empty-state,
+  app-filter-chips,
+  app-confirm-dialog,
+  app-progress-bar,
+  app-side-nav {
+    display: block;
+  }
+
+  app-side-nav {
+    height: 100%;
+    min-height: 100dvh;
+    width: var(--spacing-nav);
+    background: var(--color-nav);
+    color: var(--color-nav-ink);
+  }
+}
