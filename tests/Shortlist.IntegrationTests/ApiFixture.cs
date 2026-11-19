@@ -13,6 +13,11 @@ public sealed class ShortlistApi : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Test");
+        builder.UseDefaultServiceProvider((_, options) =>
+        {
+            options.ValidateScopes = true;
+            options.ValidateOnBuild = true;
+        });
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>

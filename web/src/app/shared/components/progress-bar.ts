@@ -14,6 +14,7 @@ import { Component, computed, input } from '@angular/core';
       [attr.aria-valuenow]="value()"
       aria-valuemin="0"
       [attr.aria-valuemax]="max()"
+      [attr.aria-label]="label()"
     >
       <div class="h-full bg-accent" [style.width.%]="percent()"></div>
     </div>
@@ -24,6 +25,7 @@ export class ProgressBar {
   readonly max = input(100);
   readonly size = input<'line' | 'track' | 'bar'>('track');
   readonly track = input<'line' | 'soft'>('line');
+  readonly label = input('Progress');
   protected readonly percent = computed(() => {
     const max = this.max();
     if (max <= 0) {

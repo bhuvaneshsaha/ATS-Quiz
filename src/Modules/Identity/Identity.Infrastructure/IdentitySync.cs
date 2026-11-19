@@ -32,7 +32,7 @@ public sealed class IdentityStartupSync(
         [
             "Core.HiringUnits.View", "Core.Functions.View", "Core.Openings.View", "Core.Openings.Manage",
             "Core.Candidates.View", "Core.Candidates.Manage", "Core.Applications.View", "Core.Applications.MoveStage",
-            "Core.Notes.Write", "Assessments.Assessments.Write", "Assessments.Assessments.Publish",
+            "Core.Notes.Write", "Assessments.Questions.Read", "Assessments.Assessments.Write", "Assessments.Assessments.Publish",
             "Assessments.Bindings.Manage", "Assessments.Invitations.View", "Assessments.Results.View"
         ],
         ["Hiring manager"] =
@@ -40,8 +40,8 @@ public sealed class IdentityStartupSync(
             "Core.Openings.View", "Core.Candidates.View", "Core.Applications.View", "Assessments.Results.View"
         ],
         ["Grader"] = ["Assessments.Grading.Grade"],
-        ["Question author"] = ["Core.Functions.View", "Assessments.Questions.Write"],
-        ["Question reviewer"] = ["Assessments.Questions.Write", "Assessments.Questions.Approve"]
+        ["Question author"] = ["Core.Functions.View", "Assessments.Questions.Read", "Assessments.Questions.Write"],
+        ["Question reviewer"] = ["Assessments.Questions.Read", "Assessments.Questions.Write", "Assessments.Questions.Approve"]
     };
 
     public int Order => 1;

@@ -73,10 +73,16 @@ builder.Services.ConfigureApplicationCookie(options =>
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
         return Task.CompletedTask;
     };
-    options.Events.OnRedirectToAccessDenied = context =>
+    options.Events.OnRedirectToAccessDenied = async context =>
     {
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
-        return Task.CompletedTask;
+        context.Response.ContentType = "application/problem+json";
+        await context.Response.WriteAsJsonAsync(new
+        {
+            title = "You don't have access to this.",
+            status = StatusCodes.Status403Forbidden,
+            code = "auth.forbidden"
+        });
     };
 });
 builder.Services.AddAuthentication().AddCookie("Candidate", options =>
@@ -134,6 +140,7 @@ builder.Services.AddScoped<IRoleAssignments>(provider => provider.GetRequiredSer
 builder.Services.AddScoped<IUserLookup>(provider => provider.GetRequiredService<AccessService>());
 builder.Services.AddScoped<IIdempotencyStore, IdempotencyStore>();
 builder.Services.AddScoped<IApplicationReader, CoreApplicationReader>();
+builder.Services.AddScoped<ICatalogueReader, CoreCatalogueReader>();
 builder.Services.AddScoped<IStartupSync, IdentityStartupSync>();
 builder.Services.AddScoped<IStartupSync, StageCatalogueSync>();
 builder.Services.AddScoped<AttemptFinalizer>();

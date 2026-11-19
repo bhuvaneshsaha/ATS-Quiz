@@ -132,6 +132,49 @@ public class ScoringTests
         presented.Options.Select(option => option.Text).ShouldBe(["Yes", "No"], ignoreOrder: true);
     }
 
+    [Fact]
+    public void Section_deadlines_share_extra_time_across_the_paper()
+    {
+        var first = Guid.CreateVersion7();
+        var second = Guid.CreateVersion7();
+        var started = new DateTimeOffset(2026, 11, 15, 9, 0, 0, TimeSpan.Zero);
+        var deadline = Deadlines.Compute(started, 15, 50);
+        var attempt = Attempt.Start(Guid.CreateVersion7(), Guid.CreateVersion7(), started, deadline, new Paper(
+        [
+            new PaperSection(first, "Knowledge", 10, 1, []),
+            new PaperSection(second, "Writing", 5, 1, [])
+        ]));
+
+        attempt.SectionDeadline(first).ShouldBe(started.AddMinutes(15));
+        attempt.SectionDeadline(second).ShouldBe(started.AddMinutes(22.5));
+        var closed = attempt.EnsureOpen(started.AddMinutes(16), first);
+        closed.ShouldNotBeNull();
+        closed.Value.Code.ShouldBe("attempt.section_closed");
+        attempt.EnsureOpen(started.AddMinutes(16), second).ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_submit_after_the_grace_period_is_expired()
+    {
+        var deadline = DateTimeOffset.UtcNow;
+        Attempt.StatusForClose(AttemptStatus.Submitted, deadline.AddSeconds(2), deadline).ShouldBe(AttemptStatus.Submitted);
+        Attempt.StatusForClose(AttemptStatus.Submitted, deadline.AddSeconds(6), deadline).ShouldBe(AttemptStatus.Expired);
+        Attempt.StatusForClose(AttemptStatus.Expired, deadline.AddMinutes(1), deadline).ShouldBe(AttemptStatus.Expired);
+    }
+
+    [Fact]
+    public void Camel_case_partial_credit_deserializes()
+    {
+        var id = Guid.CreateVersion7();
+        var json = $$"""
+            {"type":"multiple_choice","prompt":"Pick","attachments":[],"partialCredit":"none","options":[{"id":"{{id}}","text":"A","isCorrect":true},{"id":"{{Guid.CreateVersion7()}}","text":"B","isCorrect":false}]}
+            """;
+        var content = JsonSerializer.Deserialize<QuestionContent>(json, QuestionJson.Options);
+        var multiple = content.ShouldBeOfType<MultipleChoiceContent>();
+        multiple.PartialCredit.ShouldBe(PartialCredit.None);
+        multiple.Options.Count(option => option.IsCorrect).ShouldBe(1);
+    }
+
     private static SingleChoiceContent Choice(string prompt) =>
         new(prompt, [], [new(Guid.CreateVersion7(), "Yes", true), new(Guid.CreateVersion7(), "No", false)]);
 

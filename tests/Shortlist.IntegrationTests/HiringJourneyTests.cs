@@ -53,6 +53,8 @@ public class HiringJourneyTests(ShortlistApi api)
         var questionId = question.GetProperty("id").GetGuid();
         await session.Post($"/api/assessments/v1/questions/{questionId}/submit", new { });
         var publishedQuestion = await session.Post($"/api/assessments/v1/questions/{questionId}/publish", new { });
+        var loaded = await session.Get($"/api/assessments/v1/questions/{questionId}");
+        loaded.GetProperty("functionName").GetString().ShouldBe($"Platform {suffix}");
         var versionId = publishedQuestion.GetProperty("currentVersionId").GetGuid();
 
         var assessment = await session.Post("/api/assessments/v1/assessments", new
@@ -141,6 +143,120 @@ public class HiringJourneyTests(ShortlistApi api)
         result.GetProperty("total").GetDecimal().ShouldBe(4);
         result.GetProperty("passed").GetBoolean().ShouldBeTrue();
         result.GetProperty("status").GetString().ShouldBe("Final");
+
+        var again = await session.Post("/api/assessments/v1/take/submit", new { attemptId });
+        again.GetProperty("total").GetDecimal().ShouldBe(4);
+        again.GetProperty("status").GetString().ShouldBe("Final");
+    }
+
+    [Fact]
+    public async Task Attaching_a_test_replaces_the_previous_one_and_invites_people_already_on_the_stage()
+    {
+        var session = new ApiSession(api.CreateCookieClient());
+        await session.SignIn();
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var unit = await session.Post("/api/core/v1/hiring-units", new { type = "Department", name = $"Ops {suffix}", ownerUserId = (Guid?)null, externalId = (string?)null }, idempotent: true);
+        var function = await session.Post("/api/core/v1/functions", new { name = $"Ops {suffix}", ownerUserId = (Guid?)null }, idempotent: true);
+        var opening = await session.Post("/api/core/v1/openings", Opening(unit, function, $"Operator {suffix}"), idempotent: true);
+        await session.Post($"/api/core/v1/openings/{opening.GetProperty("id").GetGuid()}/status", new { status = "Open" });
+        var question = await session.Post("/api/assessments/v1/questions", new
+        {
+            functionId = function.GetProperty("id").GetGuid(),
+            points = 2,
+            timeLimitSeconds = (int?)null,
+            skillIds = Array.Empty<Guid>(),
+            content = new
+            {
+                type = "multiple_choice",
+                prompt = "Which are true?",
+                attachments = Array.Empty<object>(),
+                partialCredit = "none",
+                options = new[]
+                {
+                    new { id = Guid.NewGuid(), text = "A", isCorrect = true },
+                    new { id = Guid.NewGuid(), text = "B", isCorrect = false }
+                }
+            }
+        }, idempotent: true);
+        var questionId = question.GetProperty("id").GetGuid();
+        await session.Post($"/api/assessments/v1/questions/{questionId}/submit", new { });
+        var publishedQuestion = await session.Post($"/api/assessments/v1/questions/{questionId}/publish", new { });
+        var versionId = publishedQuestion.GetProperty("currentVersionId").GetGuid();
+        var assessment = await session.Post("/api/assessments/v1/assessments", new
+        {
+            functionId = function.GetProperty("id").GetGuid(),
+            name = $"Ops screen {suffix}",
+            passMark = 50,
+            desktopOnly = false,
+            sections = new[]
+            {
+                new
+                {
+                    name = "Only",
+                    minutes = 10,
+                    weight = 1,
+                    source = "fixed",
+                    questionVersionIds = new[] { versionId },
+                    drawCount = (int?)null,
+                    drawTypes = (string[]?)null,
+                    skillIds = (Guid[]?)null
+                }
+            }
+        }, idempotent: true);
+        var published = await session.Post($"/api/assessments/v1/assessments/{assessment.GetProperty("id").GetGuid()}/publish", new { });
+        var assessmentVersionId = published.GetProperty("current").GetProperty("id").GetGuid();
+        var stageId = opening.GetProperty("stages").EnumerateArray().Single(stage => stage.GetProperty("type").GetString() == "Assessment").GetProperty("id").GetGuid();
+        var email = $"ops.{suffix}@example.com";
+        var candidate = await session.Post("/api/core/v1/candidates", new
+        {
+            name = "Ops Person",
+            email,
+            phone = (string?)null,
+            location = (string?)null,
+            source = (string?)null,
+            externalId = (string?)null,
+            consent = true,
+            consentText = "yes"
+        }, idempotent: true);
+        var application = await session.Post($"/api/core/v1/openings/{opening.GetProperty("id").GetGuid()}/applications", new { candidateId = candidate.GetProperty("id").GetGuid() }, idempotent: true);
+        await session.Post($"/api/core/v1/openings/{opening.GetProperty("id").GetGuid()}/applications/{application.GetProperty("id").GetGuid()}/stage", new { toStageId = stageId });
+
+        await session.Post("/api/assessments/v1/bindings", new
+        {
+            openingStageId = stageId,
+            assessmentVersionId,
+            passMarkOverride = (decimal?)null,
+            validDays = 7,
+            extraTimePercent = 10
+        }, idempotent: true);
+        await session.Post("/api/assessments/v1/bindings", new
+        {
+            openingStageId = stageId,
+            assessmentVersionId,
+            passMarkOverride = (decimal?)null,
+            validDays = 3,
+            extraTimePercent = 25
+        }, idempotent: true);
+
+        var bindings = await session.Get($"/api/assessments/v1/bindings?openingStageId={stageId}");
+        bindings.GetArrayLength().ShouldBe(1);
+        bindings[0].GetProperty("validDays").GetInt32().ShouldBe(3);
+        bindings[0].GetProperty("extraTimePercent").GetInt32().ShouldBe(25);
+
+        var invite = await WaitForEmail(session, email, "Open your assessment:");
+        invite.ShouldContain("/take/");
+        var firstToken = invite.Split("/take/", StringSplitOptions.None)[1].Split('\n', StringSplitOptions.None)[0].Trim();
+        var before = await CountEmails(session, email, "Open your assessment:");
+        var screenId = opening.GetProperty("stages").EnumerateArray().First(stage => stage.GetProperty("type").GetString() != "Assessment").GetProperty("id").GetGuid();
+        var applicationId = application.GetProperty("id").GetGuid();
+        var openingId = opening.GetProperty("id").GetGuid();
+        await session.Post($"/api/core/v1/openings/{openingId}/applications/{applicationId}/stage", new { toStageId = screenId });
+        await session.Post($"/api/core/v1/openings/{openingId}/applications/{applicationId}/stage", new { toStageId = stageId });
+        var resent = await WaitForEmailCount(session, email, "Open your assessment:", before + 1);
+        var secondToken = resent.Split("/take/", StringSplitOptions.None)[1].Split('\n', StringSplitOptions.None)[0].Trim();
+        secondToken.ShouldNotBe(firstToken);
+        var rejected = await Should.ThrowAsync<InvalidOperationException>(() => session.Post($"/api/assessments/v1/take/{firstToken}/code", new { }));
+        rejected.Message.ShouldContain("not valid");
     }
 
     [Fact]
@@ -187,6 +303,29 @@ public class HiringJourneyTests(ShortlistApi api)
         recruiterId = (Guid?)null,
         externalId = (string?)null
     };
+
+    private static async Task<int> CountEmails(ApiSession session, string email, string fragment)
+    {
+        var mailbox = await session.Get("/api/identity/v1/dev/emails");
+        return mailbox.EnumerateArray().Count(message => message.GetProperty("to").GetString() == email && message.GetProperty("textBody").GetString() is string body && body.Contains(fragment, StringComparison.Ordinal));
+    }
+
+    private static async Task<string> WaitForEmailCount(ApiSession session, string email, string fragment, int count)
+    {
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            var mailbox = await session.Get("/api/identity/v1/dev/emails");
+            var matches = mailbox.EnumerateArray().Where(message => message.GetProperty("to").GetString() == email && message.GetProperty("textBody").GetString() is string body && body.Contains(fragment, StringComparison.Ordinal)).Select(message => message.GetProperty("textBody").GetString()!).ToList();
+            if (matches.Count >= count)
+            {
+                return matches[^1];
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(250));
+        }
+
+        throw new InvalidOperationException($"Expected {count} emails for {email}.");
+    }
 
     private static async Task<string> WaitForEmail(ApiSession session, string email, string fragment)
     {

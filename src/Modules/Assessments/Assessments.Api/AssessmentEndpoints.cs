@@ -20,9 +20,9 @@ public static class AssessmentEndpoints
     {
         var questions = api.MapGroup("/v1/questions").WithTags("Questions").RequireAuthorization();
         questions.MapGet("/", async (Guid? functionId, string? status, IDispatcher dispatcher, CancellationToken ct) =>
-            (await dispatcher.Query(new ListQuestions(functionId, status), ct)).ToHttpResult()).RequirePermission(AssessmentPermissions.QuestionsWrite);
+            (await dispatcher.Query(new ListQuestions(functionId, status), ct)).ToHttpResult()).RequirePermission(AssessmentPermissions.QuestionsRead);
         questions.MapGet("/{id:guid}", async (Guid id, IDispatcher dispatcher, CancellationToken ct) =>
-            (await dispatcher.Query(new GetQuestion(id), ct)).ToHttpResult()).RequirePermission(AssessmentPermissions.QuestionsWrite);
+            (await dispatcher.Query(new GetQuestion(id), ct)).ToHttpResult()).RequirePermission(AssessmentPermissions.QuestionsRead);
         questions.MapPost("/", async (CreateQuestion command, IDispatcher dispatcher, CancellationToken ct) =>
             (await dispatcher.Send(command, ct)).ToCreatedResult(question => $"/api/assessments/v1/questions/{question.Id}")).RequirePermission(AssessmentPermissions.QuestionsWrite).WithIdempotency();
         questions.MapPut("/{id:guid}", async (Guid id, UpdateQuestionRequest body, IDispatcher dispatcher, CancellationToken ct) =>
@@ -42,12 +42,18 @@ public static class AssessmentEndpoints
         assessments.MapPost("/{id:guid}/publish", async (Guid id, IDispatcher dispatcher, CancellationToken ct) =>
             (await dispatcher.Send(new PublishAssessment(id), ct)).ToHttpResult()).RequirePermission(AssessmentPermissions.AssessmentsPublish);
 
+        api.MapGet("/v1/bindings", async (Guid? openingStageId, IDispatcher dispatcher, CancellationToken ct) =>
+            (await dispatcher.Query(new ListBindings(openingStageId), ct)).ToHttpResult())
+            .RequireAuthorization().RequirePermission(AssessmentPermissions.BindingsManage);
         api.MapPost("/v1/bindings", async (CreateBinding command, IDispatcher dispatcher, CancellationToken ct) =>
             (await dispatcher.Send(command, ct)).ToCreatedResult(binding => $"/api/assessments/v1/bindings/{binding.Id}"))
             .RequireAuthorization().RequirePermission(AssessmentPermissions.BindingsManage).WithIdempotency();
         api.MapGet("/v1/invitations", async (Guid? applicationId, IDispatcher dispatcher, CancellationToken ct) =>
             (await dispatcher.Query(new ListInvitations(applicationId), ct)).ToHttpResult())
             .RequireAuthorization().RequirePermission(AssessmentPermissions.InvitationsView);
+        api.MapPost("/v1/invitations/{id:guid}/resend", async (Guid id, IDispatcher dispatcher, CancellationToken ct) =>
+            (await dispatcher.Send(new ResendInvitation(id), ct)).ToHttpResult())
+            .RequireAuthorization().RequirePermission(AssessmentPermissions.BindingsManage);
 
         var grading = api.MapGroup("/v1/grading").WithTags("Grading").RequireAuthorization();
         grading.MapGet("/queue", async (IDispatcher dispatcher, CancellationToken ct) =>
@@ -55,6 +61,8 @@ public static class AssessmentEndpoints
         grading.MapPost("/answers/{answerId:guid}", async (Guid answerId, GradeRequest body, IDispatcher dispatcher, CancellationToken ct) =>
             (await dispatcher.Send(new GradeAnswer(answerId, body.Score, body.Comment), ct)).ToHttpResult()).RequirePermission(AssessmentPermissions.GradingGrade);
 
+        api.MapGet("/v1/results", async (IDispatcher dispatcher, CancellationToken ct) =>
+            (await dispatcher.Query(new ListResults(), ct)).ToHttpResult()).RequireAuthorization().RequirePermission(AssessmentPermissions.ResultsView);
         api.MapGet("/v1/results/{attemptId:guid}", async (Guid attemptId, IDispatcher dispatcher, CancellationToken ct) =>
             (await dispatcher.Query(new GetResult(attemptId), ct)).ToHttpResult()).RequireAuthorization().RequirePermission(AssessmentPermissions.ResultsView);
         api.MapGet("/v1/results/{attemptId:guid}/report", async (Guid attemptId, IDispatcher dispatcher, IPdfRenderer pdf, CancellationToken ct) =>
@@ -90,8 +98,10 @@ public static class AssessmentEndpoints
                 new Claim(ClaimTypes.Email, result.Value.Email)
             };
             await http.SignInAsync("Candidate", new ClaimsPrincipal(new ClaimsIdentity(claims, "Candidate")));
-            return Results.Ok(new { invitationId = result.Value.InvitationId });
+            return Results.Ok(new CandidateSessionResponse(result.Value.InvitationId, result.Value.AssessmentName, result.Value.DesktopOnly, result.Value.TotalMinutes, result.Value.ExtraTimePercent, result.Value.EnforcedMinutes, result.Value.AttemptStarted, result.Value.AttemptFinished));
         }).AllowAnonymous().DisableAntiforgery().RequireRateLimiting("candidate-auth");
+        take.MapGet("/session", async (IDispatcher dispatcher, CancellationToken ct) =>
+            (await dispatcher.Query(new GetCandidateSession(), ct)).ToHttpResult()).RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = "Candidate" });
         take.MapPost("/start", async (IDispatcher dispatcher, CancellationToken ct) =>
             (await dispatcher.Send(new StartAttempt(), ct)).ToHttpResult()).RequireAuthorization(new AuthorizeAttribute { AuthenticationSchemes = "Candidate" });
         take.MapGet("/paper", async (IDispatcher dispatcher, CancellationToken ct) =>

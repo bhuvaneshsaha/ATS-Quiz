@@ -12,7 +12,7 @@ import { Component, input } from '@angular/core';
       </span>
       <ng-content />
       @if (error(); as message) {
-        <span class="text-danger" role="alert">{{ message }}</span>
+        <span class="text-danger" role="alert" [id]="errorId() || null">{{ message }}</span>
       }
     </label>
   `,
@@ -21,4 +21,5 @@ export class FormField {
   readonly label = input.required<string>();
   readonly required = input(false);
   readonly error = input<string | null>(null);
+  readonly errorId = input('');
 }

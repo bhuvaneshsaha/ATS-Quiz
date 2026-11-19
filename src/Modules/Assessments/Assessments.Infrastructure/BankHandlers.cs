@@ -4,17 +4,19 @@ using Shortlist.BuildingBlocks.Abstractions;
 using Shortlist.BuildingBlocks.Application;
 using Shortlist.Modules.Assessments.Application;
 using Shortlist.Modules.Assessments.Domain;
+using Shortlist.Modules.Core.Contracts;
 
 namespace Shortlist.Modules.Assessments.Infrastructure;
 
 internal static class QuestionMapper
 {
-    public static QuestionResponse Map(Question question)
+    public static QuestionResponse Map(Question question, string functionName = "")
     {
         var version = question.Current();
         return new QuestionResponse(
             question.Id,
             question.FunctionId,
+            functionName,
             question.Status.ToString(),
             version.Id,
             version.Number,
@@ -124,7 +126,7 @@ internal sealed class ReviseQuestionHandler(AssessmentsDbContext db) : ICommandH
     }
 }
 
-internal sealed class ListQuestionsHandler(AssessmentsDbContext db) : IQueryHandler<ListQuestions, Result<IReadOnlyList<QuestionResponse>>>
+internal sealed class ListQuestionsHandler(AssessmentsDbContext db, ICatalogueReader catalogue) : IQueryHandler<ListQuestions, Result<IReadOnlyList<QuestionResponse>>>
 {
     public async Task<Result<IReadOnlyList<QuestionResponse>>> Handle(ListQuestions query, CancellationToken cancellationToken)
     {
@@ -140,18 +142,23 @@ internal sealed class ListQuestionsHandler(AssessmentsDbContext db) : IQueryHand
         }
 
         var rows = await questions.OrderByDescending(question => question.CreatedAt).ToListAsync(cancellationToken);
-        return rows.Select(QuestionMapper.Map).ToList();
+        var names = await catalogue.FunctionNamesAsync(rows.Select(question => question.FunctionId).Distinct().ToList(), cancellationToken);
+        return rows.Select(question => QuestionMapper.Map(question, names.GetValueOrDefault(question.FunctionId, ""))).ToList();
     }
 }
 
-internal sealed class GetQuestionHandler(AssessmentsDbContext db) : IQueryHandler<GetQuestion, Result<QuestionResponse>>
+internal sealed class GetQuestionHandler(AssessmentsDbContext db, ICatalogueReader catalogue) : IQueryHandler<GetQuestion, Result<QuestionResponse>>
 {
     public async Task<Result<QuestionResponse>> Handle(GetQuestion query, CancellationToken cancellationToken)
     {
         var question = await SubmitQuestionHandler.Load(db, query.QuestionId, cancellationToken);
-        return question is null
-            ? Error.NotFoundError("question.not_found", "Question was not found.")
-            : QuestionMapper.Map(question);
+        if (question is null)
+        {
+            return Error.NotFoundError("question.not_found", "Question was not found.");
+        }
+
+        var names = await catalogue.FunctionNamesAsync([question.FunctionId], cancellationToken);
+        return QuestionMapper.Map(question, names.GetValueOrDefault(question.FunctionId, ""));
     }
 }
 

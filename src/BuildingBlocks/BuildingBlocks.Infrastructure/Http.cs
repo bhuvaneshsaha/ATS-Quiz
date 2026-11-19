@@ -184,12 +184,13 @@ public static class ExceptionMapping
     }
 }
 
-public sealed class InProcessEventBus(IServiceProvider services) : IEventBus
+public sealed class InProcessEventBus(IServiceScopeFactory scopes) : IEventBus
 {
     public async Task PublishAsync<TEvent>(TEvent @event, CancellationToken cancellationToken)
         where TEvent : IIntegrationEvent
     {
-        var handlers = services.GetServices<IIntegrationEventHandler<TEvent>>();
+        await using var scope = scopes.CreateAsyncScope();
+        var handlers = scope.ServiceProvider.GetServices<IIntegrationEventHandler<TEvent>>();
         foreach (var handler in handlers)
         {
             await handler.HandleAsync(@event, cancellationToken);

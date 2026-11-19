@@ -1,5 +1,6 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+import { SessionStore } from '../../core/session';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideMenu } from '@ng-icons/lucide';
 import { BrnButton } from '@spartan-ng/brain/button';
@@ -12,12 +13,17 @@ import { SideNav } from '../../shared/components/side-nav';
   providers: [provideIcons({ lucideMenu })],
   template: `
     <div class="staff-frame">
+      <a
+        class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-surface focus:px-3 focus:py-2"
+        href="#content"
+        >Skip to content</a
+      >
       <app-side-nav class="hidden lg:block" />
       <div class="min-w-0">
         <header
           class="flex items-center justify-between border-b border-line bg-surface px-4 py-3 lg:hidden"
         >
-          <p class="font-display text-lg font-semibold" i18n>Shortlist</p>
+          <p class="font-display text-lg font-semibold">{{ session.session()?.workspaceName || 'Shortlist' }}</p>
           <div brnSheet side="left">
             <button
               brnButton
@@ -31,13 +37,22 @@ import { SideNav } from '../../shared/components/side-nav';
             </button>
             <div brnSheetOverlay class="bg-ink/40"></div>
             <ng-template brnSheetContent>
-              <app-side-nav />
+              <div class="flex h-dvh w-screen flex-col bg-nav">
+                <button brnSheetClose autofocus type="button" class="m-3 min-h-11 self-end text-nav-ink" aria-label="Close menu">
+                  Close
+                </button>
+                <app-side-nav />
+              </div>
             </ng-template>
           </div>
         </header>
-        <router-outlet />
+        <main id="content">
+          <router-outlet />
+        </main>
       </div>
     </div>
   `,
 })
-export class ShellPage {}
+export class ShellPage {
+  protected readonly session = inject(SessionStore);
+}

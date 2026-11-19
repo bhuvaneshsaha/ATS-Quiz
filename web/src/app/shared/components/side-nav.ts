@@ -22,10 +22,10 @@ interface NavGroup {
   imports: [RouterLink, RouterLinkActive, NgIcon],
   providers: [provideIcons({ lucideLogOut })],
   template: `
-    <div class="flex h-full flex-col gap-5 px-3.5 py-6">
+    <div class="flex h-full flex-col gap-5 px-3.5 py-6" role="navigation" aria-label="Main">
       <div class="flex flex-col gap-0.5 px-2.5">
         <p class="font-display text-xl font-semibold text-white" i18n>Shortlist</p>
-        <p class="text-xs text-nav-muted" i18n>[COMPANY NAME] · Hiring</p>
+        <p class="text-xs text-nav-muted">{{ session.session()?.workspaceName || 'Shortlist' }} · Hiring</p>
       </div>
       @for (group of visibleGroups(); track group.label) {
         <div class="flex flex-col gap-0.5">
@@ -91,7 +91,7 @@ export class SideNav {
         {
           path: '/questions',
           label: en.questions,
-          permission: 'Assessments.Questions.Write',
+          permission: 'Assessments.Questions.Read',
           module: 'Assessments',
         },
         {
@@ -104,6 +104,12 @@ export class SideNav {
           path: '/grading',
           label: en.grading,
           permission: 'Assessments.Grading.Grade',
+          module: 'Assessments',
+        },
+        {
+          path: '/results',
+          label: en.results,
+          permission: 'Assessments.Results.View',
           module: 'Assessments',
         },
       ],

@@ -24,7 +24,7 @@ internal sealed class SignInHandler(SignInManager<StaffUser> signInManager, User
         var result = await signInManager.PasswordSignInAsync(user, command.Password, isPersistent: true, lockoutOnFailure: true);
         if (result.RequiresTwoFactor)
         {
-            return new SessionResponse(null, user.Email, user.DisplayName, [], Modules(configuration), true);
+            return new SessionResponse(null, user.Email, user.DisplayName, [], Modules(configuration), true, Workspace(configuration));
         }
 
         if (!result.Succeeded)
@@ -33,8 +33,10 @@ internal sealed class SignInHandler(SignInManager<StaffUser> signInManager, User
         }
 
         var permissions = await access.ListAsync(user.Id, cancellationToken);
-        return new SessionResponse(user.Id, user.Email, user.DisplayName, permissions, Modules(configuration), false);
+        return new SessionResponse(user.Id, user.Email, user.DisplayName, permissions, Modules(configuration), false, Workspace(configuration));
     }
+
+    internal static string Workspace(IConfiguration configuration) => configuration["Workspace:Name"] ?? "Shortlist";
 
     internal static IReadOnlyList<ModuleFlag> Modules(IConfiguration configuration) =>
     [
@@ -67,7 +69,7 @@ internal sealed class SignInMfaHandler(SignInManager<StaffUser> signInManager, U
         }
 
         var permissions = await access.ListAsync(user.Id, cancellationToken);
-        return new SessionResponse(user.Id, user.Email, user.DisplayName, permissions, SignInHandler.Modules(configuration), false);
+        return new SessionResponse(user.Id, user.Email, user.DisplayName, permissions, SignInHandler.Modules(configuration), false, SignInHandler.Workspace(configuration));
     }
 }
 
@@ -88,7 +90,7 @@ internal sealed class GetSessionHandler(ICurrentUser currentUser, UserManager<St
         }
 
         var permissions = await access.ListAsync(user.Id, cancellationToken);
-        return new SessionResponse(user.Id, user.Email, user.DisplayName, permissions, SignInHandler.Modules(configuration), false);
+        return new SessionResponse(user.Id, user.Email, user.DisplayName, permissions, SignInHandler.Modules(configuration), false, SignInHandler.Workspace(configuration));
     }
 }
 

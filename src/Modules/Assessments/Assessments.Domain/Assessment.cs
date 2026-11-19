@@ -183,4 +183,12 @@ public sealed class StageBinding : Entity, IAudited
             ValidDays = validDays,
             ExtraTimePercent = extraTimePercent
         };
+
+    public void Retarget(Guid assessmentVersionId, decimal? passMarkOverride, int validDays, int extraTimePercent)
+    {
+        AssessmentVersionId = assessmentVersionId;
+        PassMarkOverride = passMarkOverride;
+        ValidDays = validDays;
+        ExtraTimePercent = extraTimePercent;
+    }
 }
